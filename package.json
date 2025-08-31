@@ -1,0 +1,131 @@
+{
+  "name": "git4neo",
+  "displayName": "Git4Neo",
+  "description": "Convert GitHub repositories into Neo4j graphs",
+      "version": "0.0.4",
+  "publisher": "aycsi",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aycsi/git4neo.git"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:git4neo.testExtension",
+    "onCommand:git4neo.connectRepository",
+    "onCommand:git4neo.connectMultipleRepositories",
+    "onCommand:git4neo.viewGraph",
+    "onCommand:git4neo.openBatchManager"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "git4neo.testExtension",
+        "title": "Git4Neo: Test Extension"
+      },
+      {
+        "command": "git4neo.connectRepository",
+        "title": "Git4Neo: Connect Single Repository"
+      },
+      {
+        "command": "git4neo.connectMultipleRepositories",
+        "title": "Git4Neo: Connect Multiple Repositories"
+      },
+      {
+        "command": "git4neo.viewGraph",
+        "title": "Git4Neo: View Graph"
+      },
+      {
+        "command": "git4neo.openBatchManager",
+        "title": "Git4Neo: Open Batch Manager"
+      }
+    ],
+    "configuration": {
+      "title": "Git4Neo",
+      "properties": {
+        "git4neo.neo4jUri": {
+          "type": "string",
+          "default": "bolt://localhost:7687",
+          "description": "Neo4j database URI"
+        },
+        "git4neo.neo4jUsername": {
+          "type": "string",
+          "default": "neo4j",
+          "description": "Neo4j username"
+        },
+        "git4neo.neo4jPassword": {
+          "type": "string",
+          "default": "password",
+          "description": "Neo4j password"
+        },
+        "git4neo.githubToken": {
+          "type": "string",
+          "description": "GitHub personal access token"
+        }
+      }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "git4neo.connectRepository",
+          "group": "git4neo",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "git4neo.connectMultipleRepositories",
+          "group": "git4neo",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "git4neo.openBatchManager",
+          "group": "git4neo",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "git4neo.viewGraph",
+          "group": "git4neo",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "git4neo.connectRepository",
+          "when": "true"
+        },
+        {
+          "command": "git4neo.connectMultipleRepositories",
+          "when": "true"
+        },
+        {
+          "command": "git4neo.openBatchManager",
+          "when": "true"
+        },
+        {
+          "command": "git4neo.viewGraph",
+          "when": "true"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "16.x",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^4.9.5"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.15.0",
+    "octokit": "^3.1.2",
+    "simple-git": "^3.20.0"
+  }
+}
