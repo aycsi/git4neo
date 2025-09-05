@@ -185,6 +185,70 @@ export class Neo4jService {
         }
     }
 
+    async createHookNode(hookData: {
+        name: string;
+        filePath: string;
+        lineNumber: number;
+        type: string;
+        dependencies?: string[];
+        returnType?: string;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (f:File {path: $filePath, repositoryId: $repositoryId})
+                MERGE (h:Hook {name: $name, filePath: $filePath, repositoryId: $repositoryId})
+                SET h.lineNumber = $lineNumber,
+                    h.type = $type,
+                    h.dependencies = $dependencies,
+                    h.returnType = $returnType,
+                    h.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(h)
+                RETURN h.name + '_' + h.filePath as id
+            `, hookData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createDecoratorNode(decoratorData: {
+        name: string;
+        filePath: string;
+        lineNumber: number;
+        target: string;
+        arguments?: string[];
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (f:File {path: $filePath, repositoryId: $repositoryId})
+                MERGE (d:Decorator {name: $name, filePath: $filePath, repositoryId: $repositoryId})
+                SET d.lineNumber = $lineNumber,
+                    d.target = $target,
+                    d.arguments = $arguments,
+                    d.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(d)
+                RETURN d.name + '_' + d.filePath as id
+            `, decoratorData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
     async createClassNode(classData: {
         name: string;
         filePath: string;

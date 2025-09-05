@@ -35,6 +35,10 @@ export interface FunctionInfo {
     lineNumber: number;
     parameters: string[];
     returnType: string;
+    type: string;
+    isAsync: boolean;
+    decorators: string[];
+    generics: string[];
 }
 
 export interface ClassInfo {
@@ -42,6 +46,10 @@ export interface ClassInfo {
     lineNumber: number;
     methods: string[];
     properties: string[];
+    type: string;
+    decorators: string[];
+    extends: string;
+    implements: string[];
 }
 
 export class GitHubService {
@@ -242,34 +250,120 @@ export class GitHubService {
         const functions: FunctionInfo[] = [];
         const lines = content.split('\n');
 
-        const functionPatterns = [
-            /function\s+(\w+)\s*\(([^)]*)\)\s*:?\s*(\w*)/g,
-            /const\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>/g,
-            /let\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>/g,
-            /var\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>/g,
-            /(\w+)\s*\(([^)]*)\)\s*{/g,
-            /def\s+(\w+)\s*\(([^)]*)\)/g,
-            /public\s+\w+\s+(\w+)\s*\(([^)]*)\)/g,
-            /private\s+\w+\s+(\w+)\s*\(([^)]*)\)/g
-        ];
-
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+            const trimmed = line.trim();
             
-            for (const pattern of functionPatterns) {
-                const matches = line.matchAll(pattern);
-                for (const match of matches) {
-                    const name = match[1];
-                    const params = match[2] ? match[2].split(',').map(p => p.trim()).filter(p => p) : [];
-                    const returnType = match[3] || '';
-                    
+            if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) {
+                continue;
+            }
+
+            const decorators = this.getDecorators(line);
+            
+            const funcMatch = trimmed.match(/^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*<([^>]*)>?\s*\(([^)]*)\)\s*:?\s*([^{]*)/);
+            if (funcMatch) {
+                functions.push({
+                    name: funcMatch[1],
+                    lineNumber: i + 1,
+                    parameters: this.parseParams(funcMatch[3]),
+                    returnType: funcMatch[4].trim(),
+                    type: 'function',
+                    isAsync: trimmed.includes('async'),
+                    decorators,
+                    generics: funcMatch[2] ? funcMatch[2].split(',').map(g => g.trim()) : []
+                });
+                continue;
+            }
+
+            const arrowMatch = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*<([^>]*)>?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*:?\s*([^=]*)\s*=>/);
+            if (arrowMatch) {
+                functions.push({
+                    name: arrowMatch[1],
+                    lineNumber: i + 1,
+                    parameters: this.parseParams(arrowMatch[3]),
+                    returnType: arrowMatch[4].trim(),
+                    type: 'arrow',
+                    isAsync: trimmed.includes('async'),
+                    decorators,
+                    generics: arrowMatch[2] ? arrowMatch[2].split(',').map(g => g.trim()) : []
+                });
+                continue;
+            }
+
+            const componentMatch = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*<([^>]*)>?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*:?\s*(?:React\.)?(?:FC|FunctionComponent)/);
+            if (componentMatch) {
+                functions.push({
+                    name: componentMatch[1],
+                    lineNumber: i + 1,
+                    parameters: this.parseParams(componentMatch[3]),
+                    returnType: 'React.FC',
+                    type: 'component',
+                    isAsync: trimmed.includes('async'),
+                    decorators,
+                    generics: componentMatch[2] ? componentMatch[2].split(',').map(g => g.trim()) : []
+                });
+                continue;
+            }
+
+            const methodMatch = trimmed.match(/^(?:public|private|protected)?\s*(?:static\s+)?(?:async\s+)?(\w+)\s*<([^>]*)>?\s*\(([^)]*)\)\s*:?\s*([^{]*)/);
+            if (methodMatch && !trimmed.includes('=') && !trimmed.includes('=>')) {
+                functions.push({
+                    name: methodMatch[1],
+                    lineNumber: i + 1,
+                    parameters: this.parseParams(methodMatch[3]),
+                    returnType: methodMatch[4].trim(),
+                    type: 'method',
+                    isAsync: trimmed.includes('async'),
+                    decorators,
+                    generics: methodMatch[2] ? methodMatch[2].split(',').map(g => g.trim()) : []
+                });
+                continue;
+            }
+
+            if (decorators.some(d => d.includes('Controller'))) {
+                const controllerMatch = trimmed.match(/^(?:export\s+)?(?:@\w+.*\n\s*)*class\s+(\w+)/);
+                if (controllerMatch) {
                     functions.push({
-                        name,
+                        name: controllerMatch[1],
                         lineNumber: i + 1,
-                        parameters: params,
-                        returnType
+                        parameters: [],
+                        returnType: 'void',
+                        type: 'controller',
+                        isAsync: false,
+                        decorators,
+                        generics: []
                     });
                 }
+            }
+
+            if (decorators.some(d => d.includes('Injectable'))) {
+                const serviceMatch = trimmed.match(/^(?:export\s+)?(?:@\w+.*\n\s*)*class\s+(\w+)/);
+                if (serviceMatch) {
+                    functions.push({
+                        name: serviceMatch[1],
+                        lineNumber: i + 1,
+                        parameters: [],
+                        returnType: 'void',
+                        type: 'service',
+                        isAsync: false,
+                        decorators,
+                        generics: []
+                    });
+                }
+            }
+
+            const hookMatch = trimmed.match(/(use\w+)\s*\(/);
+            if (hookMatch) {
+                functions.push({
+                    name: hookMatch[1],
+                    lineNumber: i + 1,
+                    parameters: [],
+                    returnType: 'any',
+                    type: 'hook',
+                    isAsync: false,
+                    decorators: [],
+                    generics: []
+                });
             }
         }
 
@@ -280,64 +374,153 @@ export class GitHubService {
         const classes: ClassInfo[] = [];
         const lines = content.split('\n');
 
-        const classPatterns = [
-            /class\s+(\w+)/g,
-            /interface\s+(\w+)/g
-        ];
-
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+            const trimmed = line.trim();
             
-            for (const pattern of classPatterns) {
-                const matches = line.matchAll(pattern);
-                for (const match of matches) {
-                    const className = match[1];
-                    const methods: string[] = [];
-                    const properties: string[] = [];
+            if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) {
+                continue;
+            }
 
-                    let j = i + 1;
-                    let braceCount = 0;
-                    let inClass = false;
+            const decorators = this.getDecorators(line);
+            
+            const classMatch = trimmed.match(/^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)\s*<([^>]*)>?\s*(?:extends\s+(\w+))?\s*(?:implements\s+([^{]+))?/);
+            if (classMatch) {
+                const className = classMatch[1];
+                const generics = classMatch[2] ? classMatch[2].split(',').map(g => g.trim()) : [];
+                const extendsClass = classMatch[3] || '';
+                const implementsInterfaces = classMatch[4] ? classMatch[4].split(',').map(i => i.trim()) : [];
 
-                    while (j < lines.length) {
-                        const currentLine = lines[j];
-                        
-                        if (currentLine.includes('{')) {
-                            braceCount++;
-                            inClass = true;
-                        }
-                        
-                        if (currentLine.includes('}')) {
-                            braceCount--;
-                            if (braceCount === 0) break;
-                        }
+                let classType = 'class';
+                if (decorators.some(d => d.includes('Component'))) classType = 'component';
+                else if (decorators.some(d => d.includes('Injectable'))) classType = 'service';
+                else if (decorators.some(d => d.includes('Controller'))) classType = 'controller';
+                else if (decorators.some(d => d.includes('Module'))) classType = 'module';
 
-                        if (inClass) {
-                            const methodMatch = currentLine.match(/(\w+)\s*\([^)]*\)\s*{?/);
-                            if (methodMatch) {
-                                methods.push(methodMatch[1]);
-                            }
+                const methods: string[] = [];
+                const properties: string[] = [];
 
-                            const propertyMatch = currentLine.match(/(\w+)\s*[:=]/);
-                            if (propertyMatch) {
-                                properties.push(propertyMatch[1]);
-                            }
-                        }
-                        
-                        j++;
+                let j = i + 1;
+                let braceCount = 0;
+                let inClass = false;
+
+                while (j < lines.length) {
+                    const currentLine = lines[j];
+                    
+                    if (currentLine.includes('{')) {
+                        braceCount++;
+                        inClass = true;
+                    }
+                    
+                    if (currentLine.includes('}')) {
+                        braceCount--;
+                        if (braceCount === 0) break;
                     }
 
-                    classes.push({
-                        name: className,
-                        lineNumber: i + 1,
-                        methods,
-                        properties
-                    });
+                    if (inClass) {
+                        const methodMatch = currentLine.match(/^(?:public|private|protected)?\s*(?:static\s+)?(?:async\s+)?(\w+)\s*\([^)]*\)\s*:?\s*[^{]*/);
+                        if (methodMatch && !currentLine.includes('=') && !currentLine.includes('=>')) {
+                            methods.push(methodMatch[1]);
+                        }
+
+                        const propertyMatch = currentLine.match(/^(?:public|private|protected)?\s*(?:static\s+)?(\w+)\s*[:=]/);
+                        if (propertyMatch) {
+                            properties.push(propertyMatch[1]);
+                        }
+                    }
+                    
+                    j++;
                 }
+
+                classes.push({
+                    name: className,
+                    lineNumber: i + 1,
+                    methods,
+                    properties,
+                    type: classType,
+                    decorators,
+                    extends: extendsClass,
+                    implements: implementsInterfaces
+                });
+                continue;
+            }
+
+            const interfaceMatch = trimmed.match(/^(?:export\s+)?interface\s+(\w+)\s*<([^>]*)>?\s*(?:extends\s+([^{]+))?/);
+            if (interfaceMatch) {
+                const interfaceName = interfaceMatch[1];
+                const generics = interfaceMatch[2] ? interfaceMatch[2].split(',').map(g => g.trim()) : [];
+                const extendsInterfaces = interfaceMatch[3] ? interfaceMatch[3].split(',').map(i => i.trim()) : [];
+
+                const methods: string[] = [];
+                const properties: string[] = [];
+
+                let j = i + 1;
+                let braceCount = 0;
+                let inInterface = false;
+
+                while (j < lines.length) {
+                    const currentLine = lines[j];
+                    
+                    if (currentLine.includes('{')) {
+                        braceCount++;
+                        inInterface = true;
+                    }
+                    
+                    if (currentLine.includes('}')) {
+                        braceCount--;
+                        if (braceCount === 0) break;
+                    }
+
+                    if (inInterface) {
+                        const methodMatch = currentLine.match(/(\w+)\s*\([^)]*\)\s*:?\s*[^;]*;/);
+                        if (methodMatch) {
+                            methods.push(methodMatch[1]);
+                        }
+
+                        const propertyMatch = currentLine.match(/(\w+)\s*:\s*[^;]*;/);
+                        if (propertyMatch) {
+                            properties.push(propertyMatch[1]);
+                        }
+                    }
+                    
+                    j++;
+                }
+
+                classes.push({
+                    name: interfaceName,
+                    lineNumber: i + 1,
+                    methods,
+                    properties,
+                    type: 'interface',
+                    decorators: [],
+                    extends: extendsInterfaces[0] || '',
+                    implements: []
+                });
             }
         }
 
         return classes;
+    }
+
+    private getDecorators(line: string): string[] {
+        const decorators: string[] = [];
+        const decoratorMatch = line.match(/@(\w+)/g);
+        if (decoratorMatch) {
+            decorators.push(...decoratorMatch.map(d => d.substring(1)));
+        }
+        return decorators;
+    }
+
+    private parseParams(paramString: string): string[] {
+        if (!paramString.trim()) return [];
+        
+        const params = paramString.split(',').map(p => {
+            const trimmed = p.trim();
+            const nameMatch = trimmed.match(/^([^:=\s]+)/);
+            return nameMatch ? nameMatch[1] : trimmed;
+        }).filter(p => p && p !== 'void');
+        
+        return params;
     }
 
     extractImports(content: string): string[] {
