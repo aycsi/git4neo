@@ -232,6 +232,20 @@ export class BatchManagerView {
                         });
                     }
                     
+                    function resumeJob(jobId) {
+                        vscode.postMessage({
+                            command: 'resumeJob',
+                            jobId: jobId
+                        });
+                    }
+                    
+                    function pauseJob(jobId) {
+                        vscode.postMessage({
+                            command: 'pauseJob',
+                            jobId: jobId
+                        });
+                    }
+                    
                     function deleteJob(jobId) {
                         if (confirm('Are you sure you want to delete this job?')) {
                             vscode.postMessage({
@@ -283,8 +297,10 @@ export class BatchManagerView {
                                 <div class="job-details">
                                     <p>Repositories: \${job.results.processedRepos}/\${job.results.totalRepos}</p>
                                     <p>Success: \${job.results.successRepos} | Failed: \${job.results.failedRepos}</p>
+                                    \${job.results.totalFiles > 0 ? \`<p>Files: \${job.results.processedFiles}/\${job.results.totalFiles} | Skipped: \${job.results.skippedFiles}</p>\` : ''}
                                     \${job.startTime ? \`<p>Started: \${new Date(job.startTime).toLocaleString()}</p>\` : ''}
                                     \${job.endTime ? \`<p>Completed: \${new Date(job.endTime).toLocaleString()}</p>\` : ''}
+                                    <p>Config: Batch Size: \${job.config.batchSize}, Max Concurrent: \${job.config.maxConcurrentRepos}, Streaming: \${job.config.enableStreaming ? 'Yes' : 'No'}</p>
                                 </div>
                                 
                                 \${job.errors.length > 0 ? \`
@@ -296,6 +312,8 @@ export class BatchManagerView {
                                 
                                 <div style="margin-top: 15px;">
                                     \${job.status === 'pending' ? \`<button onclick="startJob('\${job.id}')">Start Job</button>\` : ''}
+                                    \${job.status === 'running' ? \`<button onclick="pauseJob('\${job.id}')">Pause</button>\` : ''}
+                                    \${job.status === 'paused' ? \`<button onclick="resumeJob('\${job.id}')">Resume</button>\` : ''}
                                     <button onclick="deleteJob('\${job.id}')">Delete</button>
                                     <button onclick="exportJob('\${job.id}')">Export Results</button>
                                     <button onclick="saveJob('\${job.id}')">Save Job</button>
@@ -366,6 +384,14 @@ export class BatchManagerView {
             case 'loadJob':
                 await this.loadJob();
                 break;
+            case 'pauseJob':
+                this.batchProcessor.pauseJob(message.jobId);
+                this.updateJobList();
+                break;
+            case 'resumeJob':
+                this.batchProcessor.resumeJob(message.jobId);
+                this.updateJobList();
+                break;
             case 'getJobs':
                 this.updateJobList();
                 break;
@@ -373,7 +399,15 @@ export class BatchManagerView {
     }
 
     private async createJob(name: string, repositories: string[]): Promise<void> {
-        const jobId = await this.batchProcessor.createBatchJob(name, repositories);
+        const config = {
+            batchSize: 3,
+            maxConcurrentRepos: 2,
+            maxFileSize: 1024 * 1024, // 1MB
+            enableStreaming: true,
+            memoryThreshold: 0.8
+        };
+        
+        const jobId = await this.batchProcessor.createBatchJob(name, repositories, config);
         this.updateJobList();
         vscode.window.showInformationMessage(`Batch job "${name}" created with ${repositories.length} repositories`);
     }

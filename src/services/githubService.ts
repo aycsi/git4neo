@@ -21,7 +21,13 @@ export interface FileInfo {
     name: string;
     extension: string;
     size: number;
-    content: string;
+    content?: string;
+}
+
+export interface StreamingConfig {
+    maxFileSize: number;
+    enableStreaming: boolean;
+    chunkSize: number;
 }
 
 export interface FunctionInfo {
@@ -111,9 +117,11 @@ export class GitHubService {
         }
     }
 
-    async getAllFiles(repoPath: string): Promise<FileInfo[]> {
+    async getAllFiles(repoPath: string, config?: StreamingConfig): Promise<FileInfo[]> {
         const files: FileInfo[] = [];
         const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt'];
+        const maxFileSize = config?.maxFileSize || 1024 * 1024; // 1MB default
+        const enableStreaming = config?.enableStreaming ?? true;
 
         const walkDir = (dir: string): void => {
             const items = fs.readdirSync(dir);
@@ -130,17 +138,25 @@ export class GitHubService {
                     const ext = path.extname(item).toLowerCase();
                     if (extensions.includes(ext)) {
                         const relativePath = path.relative(repoPath, fullPath);
-                        try {
-                            const content = fs.readFileSync(fullPath, 'utf8');
-                            files.push({
-                                path: relativePath,
-                                name: item,
-                                extension: ext,
-                                size: stat.size,
-                                content
-                            });
-                        } catch (error) {
+                        
+                        const fileInfo: FileInfo = {
+                            path: relativePath,
+                            name: item,
+                            extension: ext,
+                            size: stat.size
+                        };
+
+                        // Only load content for small files or when streaming is disabled
+                        if (!enableStreaming || stat.size <= maxFileSize) {
+                            try {
+                                fileInfo.content = fs.readFileSync(fullPath, 'utf8');
+                            } catch (error) {
+                                // Skip files that can't be read
+                                continue;
+                            }
                         }
+
+                        files.push(fileInfo);
                     }
                 }
             }
@@ -148,6 +164,78 @@ export class GitHubService {
 
         walkDir(repoPath);
         return files;
+    }
+
+    async *streamFiles(repoPath: string, config?: StreamingConfig): AsyncGenerator<FileInfo, void, unknown> {
+        const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt'];
+        const maxFileSize = config?.maxFileSize || 1024 * 1024;
+        const enableStreaming = config?.enableStreaming ?? true;
+
+        const walkDir = async function* (dir: string): AsyncGenerator<FileInfo, void, unknown> {
+            const items = fs.readdirSync(dir);
+            
+            for (const item of items) {
+                const fullPath = path.join(dir, item);
+                const stat = fs.statSync(fullPath);
+                
+                if (stat.isDirectory()) {
+                    if (!item.startsWith('.') && item !== 'node_modules' && item !== 'vendor' && item !== 'target') {
+                        yield* walkDir(fullPath);
+                    }
+                } else if (stat.isFile()) {
+                    const ext = path.extname(item).toLowerCase();
+                    if (extensions.includes(ext)) {
+                        const relativePath = path.relative(repoPath, fullPath);
+                        
+                        const fileInfo: FileInfo = {
+                            path: relativePath,
+                            name: item,
+                            extension: ext,
+                            size: stat.size
+                        };
+
+                        // Only load content for small files or when streaming is disabled
+                        if (!enableStreaming || stat.size <= maxFileSize) {
+                            try {
+                                fileInfo.content = fs.readFileSync(fullPath, 'utf8');
+                            } catch (error) {
+                                // Skip files that can't be read
+                                continue;
+                            }
+                        }
+
+                        yield fileInfo;
+                    }
+                }
+            }
+        };
+
+        yield* walkDir(repoPath);
+    }
+
+    async readFileContent(filePath: string, repoPath: string): Promise<string> {
+        const fullPath = path.join(repoPath, filePath);
+        try {
+            return fs.readFileSync(fullPath, 'utf8');
+        } catch (error) {
+            throw new Error(`Failed to read file ${filePath}: ${error}`);
+        }
+    }
+
+    async readFileContentChunked(filePath: string, repoPath: string, chunkSize: number = 8192): Promise<AsyncGenerator<string, void, unknown>> {
+        const fullPath = path.join(repoPath, filePath);
+        
+        return async function* () {
+            try {
+                const stream = fs.createReadStream(fullPath, { encoding: 'utf8', highWaterMark: chunkSize });
+                
+                for await (const chunk of stream) {
+                    yield chunk;
+                }
+            } catch (error) {
+                throw new Error(`Failed to read file ${filePath}: ${error}`);
+            }
+        }();
     }
 
     extractFunctions(content: string, filePath: string): FunctionInfo[] {

@@ -18,6 +18,8 @@ export interface GraphRelationship {
 
 export class Neo4jService {
     private driver: Driver | null = null;
+    private sessionPool: Session[] = [];
+    private maxPoolSize = 5;
 
     async connect(): Promise<void> {
         const neo4jConfig = await Neo4jExtensionService.checkNeo4jExtension();
@@ -47,6 +49,26 @@ export class Neo4jService {
         }
     }
 
+    private getSession(): Session {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+        
+        if (this.sessionPool.length > 0) {
+            return this.sessionPool.pop()!;
+        }
+        
+        return this.driver.session();
+    }
+
+    private releaseSession(session: Session): void {
+        if (this.sessionPool.length < this.maxPoolSize) {
+            this.sessionPool.push(session);
+        } else {
+            session.close();
+        }
+    }
+
     private async getPasswordFromNeo4jExtension(): Promise<string> {
         try {
             const config = vscode.workspace.getConfiguration('neo4j');
@@ -57,6 +79,12 @@ export class Neo4jService {
     }
 
     async disconnect(): Promise<void> {
+        // Close all sessions in the pool
+        for (const session of this.sessionPool) {
+            await session.close();
+        }
+        this.sessionPool = [];
+        
         if (this.driver) {
             await this.driver.close();
             this.driver = null;
@@ -272,6 +300,53 @@ export class Neo4jService {
             return result.records[0].toObject();
         } finally {
             await session.close();
+        }
+    }
+
+    async batchCreateNodes(nodes: Array<{type: string, data: any}>): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const batchSize = 100;
+            for (let i = 0; i < nodes.length; i += batchSize) {
+                const batch = nodes.slice(i, i + batchSize);
+                const queries = batch.map(node => {
+                    switch (node.type) {
+                        case 'repository':
+                            return `
+                                MERGE (r:Repository {fullName: $fullName})
+                                SET r.name = $name,
+                                    r.description = $description,
+                                    r.language = $language,
+                                    r.stars = $stars,
+                                    r.forks = $forks,
+                                    r.url = $url,
+                                    r.createdAt = datetime()
+                            `;
+                        case 'file':
+                            return `
+                                MATCH (r:Repository {fullName: $repositoryId})
+                                MERGE (f:File {path: $path, repositoryId: $repositoryId})
+                                SET f.name = $name,
+                                    f.extension = $extension,
+                                    f.size = $size,
+                                    f.createdAt = datetime()
+                                MERGE (r)-[:CONTAINS]->(f)
+                            `;
+                        default:
+                            return '';
+                    }
+                }).filter(q => q);
+
+                if (queries.length > 0) {
+                    await session.run(`UNWIND $batch AS item ${queries.join(' ')}`, { batch });
+                }
+            }
+        } finally {
+            this.releaseSession(session);
         }
     }
 }
