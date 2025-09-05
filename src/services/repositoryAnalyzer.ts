@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { Neo4jService } from './neo4jService';
-import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig } from './githubService';
+import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig, HookInfo, DecoratorInfo } from './githubService';
 
 export interface AnalysisConfig {
     maxFileSize: number;
@@ -144,6 +144,8 @@ export class RepositoryAnalyzer {
 
         const functions = this.githubService.extractFunctions(file.content, file.path);
         const classes = this.githubService.extractClasses(file.content, file.path);
+        const hooks = this.githubService.extractHooks(file.content, file.path);
+        const decorators = this.githubService.extractDecorators(file.content, file.path);
 
         // Create function nodes
         for (const func of functions) {
@@ -165,6 +167,31 @@ export class RepositoryAnalyzer {
                 lineNumber: cls.lineNumber,
                 methods: cls.methods,
                 properties: cls.properties,
+                repositoryId
+            });
+        }
+
+        // Create hook nodes
+        for (const hook of hooks) {
+            await this.neo4jService.createHookNode({
+                name: hook.name,
+                filePath: file.path,
+                lineNumber: hook.lineNumber,
+                type: hook.type,
+                dependencies: hook.dependencies,
+                returnType: hook.returnType,
+                repositoryId
+            });
+        }
+
+        // Create decorator nodes
+        for (const decorator of decorators) {
+            await this.neo4jService.createDecoratorNode({
+                name: decorator.name,
+                filePath: file.path,
+                lineNumber: decorator.lineNumber,
+                target: decorator.target,
+                arguments: decorator.arguments,
                 repositoryId
             });
         }
