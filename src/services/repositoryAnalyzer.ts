@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import { Neo4jService } from './neo4jService';
-import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo } from './githubService';
+import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig } from './githubService';
+
+export interface AnalysisConfig {
+    maxFileSize: number;
+    enableStreaming: boolean;
+    chunkSize: number;
+    skipLargeFiles: boolean;
+    batchSize: number;
+}
 
 export class RepositoryAnalyzer {
     constructor(
@@ -8,7 +16,22 @@ export class RepositoryAnalyzer {
         private githubService: GitHubService
     ) {}
 
-    async analyzeRepository(repoUrl: string, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
+    async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
+        const analysisConfig: AnalysisConfig = {
+            maxFileSize: config?.maxFileSize || 1024 * 1024, // 1MB
+            enableStreaming: config?.enableStreaming ?? true,
+            chunkSize: config?.chunkSize || 8192,
+            skipLargeFiles: config?.skipLargeFiles ?? true,
+            batchSize: config?.batchSize || 10
+        };
+
+        const streamingConfig: StreamingConfig = {
+            maxFileSize: analysisConfig.maxFileSize,
+            enableStreaming: analysisConfig.enableStreaming,
+            chunkSize: analysisConfig.chunkSize
+        };
+
+        let repoPath: string | null = null;
         try {
             await this.neo4jService.connect();
 
@@ -19,25 +42,18 @@ export class RepositoryAnalyzer {
             const repositoryId = await this.neo4jService.createRepositoryNode(repoInfo);
 
             progress?.report({ increment: 30, message: 'Cloning repository...' });
-            const repoPath = await this.githubService.cloneRepository(repoInfo.cloneUrl);
+            repoPath = await this.githubService.cloneRepository(repoInfo.cloneUrl);
 
             progress?.report({ increment: 40, message: 'Analyzing files...' });
-            const files = await this.githubService.getAllFiles(repoPath);
+            
+            if (analysisConfig.enableStreaming) {
+                await this.analyzeRepositoryStreaming(repoPath, repositoryId, streamingConfig, progress);
+            } else {
+                await this.analyzeRepositoryBatch(repoPath, repositoryId, streamingConfig, progress);
+            }
 
-            progress?.report({ increment: 50, message: 'Creating file nodes...' });
-            await this.createFileNodes(files, repositoryId);
-
-            progress?.report({ increment: 60, message: 'Extracting functions and classes...' });
-            await this.extractCodeElements(files, repositoryId);
-
-            progress?.report({ increment: 70, message: 'Creating relationships...' });
-            await this.createRelationships(files, repositoryId);
-
-            progress?.report({ increment: 80, message: 'Cleaning up...' });
+            progress?.report({ increment: 90, message: 'Cleaning up...' });
             await this.githubService.cleanup();
-
-            progress?.report({ increment: 90, message: 'Disconnecting from Neo4j...' });
-            await this.neo4jService.disconnect();
 
             progress?.report({ increment: 100, message: 'Analysis finished' });
 
@@ -45,6 +61,112 @@ export class RepositoryAnalyzer {
             await this.githubService.cleanup();
             await this.neo4jService.disconnect();
             throw error;
+        } finally {
+            await this.neo4jService.disconnect();
+        }
+    }
+
+    private async analyzeRepositoryStreaming(
+        repoPath: string, 
+        repositoryId: string, 
+        config: StreamingConfig, 
+        progress?: vscode.Progress<{ increment?: number; message?: string }>
+    ): Promise<void> {
+        let fileCount = 0;
+        let processedFiles = 0;
+        let skippedFiles = 0;
+
+        progress?.report({ increment: 10, message: 'Streaming files...' });
+
+        for await (const file of this.githubService.streamFiles(repoPath, config)) {
+            fileCount++;
+            
+            try {
+                // Create file node
+                await this.neo4jService.createFileNode({
+                    path: file.path,
+                    name: file.name,
+                    extension: file.extension,
+                    size: file.size,
+                    repositoryId
+                });
+
+                // Process file content if available
+                if (file.content) {
+                    await this.processFileContent(file, repositoryId);
+                } else if (file.size <= config.maxFileSize) {
+                    // Load content for files that weren't loaded initially
+                    const content = await this.githubService.readFileContent(file.path, repoPath);
+                    await this.processFileContent({ ...file, content }, repositoryId);
+                } else {
+                    skippedFiles++;
+                    progress?.report({ message: `Skipped large file: ${file.path}` });
+                }
+
+                processedFiles++;
+                
+                if (processedFiles % 10 === 0) {
+                    progress?.report({ message: `Processed ${processedFiles} files...` });
+                }
+
+            } catch (error) {
+                progress?.report({ message: `Error processing ${file.path}: ${error}` });
+            }
+        }
+
+        progress?.report({ 
+            increment: 40, 
+            message: `Completed streaming: ${processedFiles} files processed, ${skippedFiles} skipped` 
+        });
+    }
+
+    private async analyzeRepositoryBatch(
+        repoPath: string, 
+        repositoryId: string, 
+        config: StreamingConfig, 
+        progress?: vscode.Progress<{ increment?: number; message?: string }>
+    ): Promise<void> {
+        progress?.report({ increment: 10, message: 'Loading all files...' });
+        const files = await this.githubService.getAllFiles(repoPath, config);
+
+        progress?.report({ increment: 20, message: 'Creating file nodes...' });
+        await this.createFileNodes(files, repositoryId);
+
+        progress?.report({ increment: 30, message: 'Extracting code elements...' });
+        await this.extractCodeElements(files, repositoryId);
+
+        progress?.report({ increment: 40, message: 'Creating relationships...' });
+        await this.createRelationships(files, repositoryId);
+    }
+
+    private async processFileContent(file: FileInfo, repositoryId: string): Promise<void> {
+        if (!file.content) return;
+
+        const functions = this.githubService.extractFunctions(file.content, file.path);
+        const classes = this.githubService.extractClasses(file.content, file.path);
+
+        // Create function nodes
+        for (const func of functions) {
+            await this.neo4jService.createFunctionNode({
+                name: func.name,
+                filePath: file.path,
+                lineNumber: func.lineNumber,
+                parameters: func.parameters,
+                returnType: func.returnType,
+                repositoryId
+            });
+        }
+
+        // Create class nodes
+        for (const cls of classes) {
+            await this.neo4jService.createClassNode({
+                name: cls.name,
+                filePath: file.path,
+                lineNumber: cls.lineNumber,
+                methods: cls.methods,
+                properties: cls.properties,
+                repositoryId
+            });
         }
     }
 
@@ -62,6 +184,8 @@ export class RepositoryAnalyzer {
 
     private async extractCodeElements(files: FileInfo[], repositoryId: string): Promise<void> {
         for (const file of files) {
+            if (!file.content) continue;
+            
             const functions = this.githubService.extractFunctions(file.content, file.path);
             const classes = this.githubService.extractClasses(file.content, file.path);
 
@@ -97,6 +221,8 @@ export class RepositoryAnalyzer {
         for (const file of files) {
             fileMap.set(file.path, file);
             
+            if (!file.content) continue;
+            
             const functions = this.githubService.extractFunctions(file.content, file.path);
             const classes = this.githubService.extractClasses(file.content, file.path);
             
@@ -110,6 +236,8 @@ export class RepositoryAnalyzer {
         }
 
         for (const file of files) {
+            if (!file.content) continue;
+            
             const imports = this.githubService.extractImports(file.content);
             const functionCalls = this.githubService.extractFunctionCalls(file.content);
 
@@ -122,7 +250,7 @@ export class RepositoryAnalyzer {
 
             for (const call of functionCalls) {
                 const targetFunction = this.findFunctionByName(call, functionMap);
-                if (targetFunction) {
+                if (targetFunction && file.content) {
                     const sourceFunctions = this.githubService.extractFunctions(file.content, file.path);
                                     for (const sourceFunc of sourceFunctions) {
                     await this.neo4jService.createFunctionCallRelationship(
