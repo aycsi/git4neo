@@ -7,7 +7,7 @@ export interface BatchJob {
     id: string;
     name: string;
     repositories: string[];
-    status: 'pending' | 'running' | 'completed' | 'failed';
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
     progress: number;
     startTime?: Date;
     endTime?: Date;
@@ -17,12 +17,24 @@ export interface BatchJob {
         processedRepos: number;
         failedRepos: number;
         successRepos: number;
+        totalFiles: number;
+        processedFiles: number;
+        skippedFiles: number;
+    };
+    config: {
+        batchSize: number;
+        maxConcurrentRepos: number;
+        maxFileSize: number;
+        enableStreaming: boolean;
+        memoryThreshold: number;
     };
 }
 
 export class BatchProcessor {
     private jobs: Map<string, BatchJob> = new Map();
     private isProcessing = false;
+    private activeConnections = 0;
+    private maxConnections = 10;
 
     constructor(
         private neo4jService: Neo4jService,
@@ -30,7 +42,7 @@ export class BatchProcessor {
         private repositoryAnalyzer: RepositoryAnalyzer
     ) {}
 
-    async createBatchJob(name: string, repositories: string[]): Promise<string> {
+    async createBatchJob(name: string, repositories: string[], config?: Partial<BatchJob['config']>): Promise<string> {
         const jobId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const job: BatchJob = {
@@ -44,7 +56,17 @@ export class BatchProcessor {
                 totalRepos: repositories.length,
                 processedRepos: 0,
                 failedRepos: 0,
-                successRepos: 0
+                successRepos: 0,
+                totalFiles: 0,
+                processedFiles: 0,
+                skippedFiles: 0
+            },
+            config: {
+                batchSize: config?.batchSize || 3,
+                maxConcurrentRepos: config?.maxConcurrentRepos || 2,
+                maxFileSize: config?.maxFileSize || 1024 * 1024, // 1MB
+                enableStreaming: config?.enableStreaming ?? true,
+                memoryThreshold: config?.memoryThreshold || 0.8 // 80% memory usage
             }
         };
 
@@ -68,11 +90,20 @@ export class BatchProcessor {
 
         try {
             await this.neo4jService.connect();
+            this.activeConnections++;
 
-            const batchSize = 5;
+            const batchSize = job.config.batchSize;
             const totalBatches = Math.ceil(job.repositories.length / batchSize);
 
             for (let i = 0; i < totalBatches; i++) {
+                if (job.status === 'paused') {
+                    await this.waitForResume(jobId);
+                }
+
+                if (job.status === 'failed') {
+                    break;
+                }
+
                 const start = i * batchSize;
                 const end = Math.min(start + batchSize, job.repositories.length);
                 const batch = job.repositories.slice(start, end);
@@ -83,11 +114,19 @@ export class BatchProcessor {
                 });
 
                 await this.processBatchConcurrently(batch, job, progress);
+                
+                // Check memory usage and pause if needed
+                if (this.isMemoryUsageHigh()) {
+                    progress?.report({ message: 'High memory usage detected, pausing briefly...' });
+                    await this.pauseForMemoryCleanup();
+                }
             }
 
-            job.status = 'completed';
-            job.progress = 100;
-            job.endTime = new Date();
+            if (job.status === 'running') {
+                job.status = 'completed';
+                job.progress = 100;
+                job.endTime = new Date();
+            }
 
         } catch (error) {
             job.status = 'failed';
@@ -95,7 +134,10 @@ export class BatchProcessor {
             throw error;
         } finally {
             this.isProcessing = false;
-            await this.neo4jService.disconnect();
+            if (this.activeConnections > 0) {
+                await this.neo4jService.disconnect();
+                this.activeConnections--;
+            }
         }
     }
 
@@ -104,24 +146,28 @@ export class BatchProcessor {
         job: BatchJob, 
         progress?: vscode.Progress<{ increment?: number; message?: string }>
     ): Promise<void> {
+        const semaphore = new Semaphore(job.config.maxConcurrentRepos);
+        
         const promises = repositories.map(async (repoUrl) => {
-            try {
-                progress?.report({ message: `Analyzing ${repoUrl}...` });
-                
-                await this.repositoryAnalyzer.analyzeRepository(repoUrl);
-                
-                job.results.successRepos++;
-                job.results.processedRepos++;
-                
-                progress?.report({ message: `Finished ${repoUrl}` });
-                
-            } catch (error) {
-                job.results.failedRepos++;
-                job.results.processedRepos++;
-                job.errors.push(`${repoUrl}: ${error instanceof Error ? error.message : String(error)}`);
-                
-                progress?.report({ message: `Failed ${repoUrl}: ${error instanceof Error ? error.message : String(error)}` });
-            }
+            return semaphore.acquire(async () => {
+                try {
+                    progress?.report({ message: `Analyzing ${repoUrl}...` });
+                    
+                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, job.config);
+                    
+                    job.results.successRepos++;
+                    job.results.processedRepos++;
+                    
+                    progress?.report({ message: `Finished ${repoUrl}` });
+                    
+                } catch (error) {
+                    job.results.failedRepos++;
+                    job.results.processedRepos++;
+                    job.errors.push(`${repoUrl}: ${error instanceof Error ? error.message : String(error)}`);
+                    
+                    progress?.report({ message: `Failed ${repoUrl}: ${error instanceof Error ? error.message : String(error)}` });
+                }
+            });
         });
 
         await Promise.allSettled(promises);
@@ -179,12 +225,98 @@ export class BatchProcessor {
                 totalRepositories: job.results.totalRepos,
                 successfulRepositories: job.results.successRepos,
                 failedRepositories: job.results.failedRepos,
+                totalFiles: job.results.totalFiles,
+                processedFiles: job.results.processedFiles,
+                skippedFiles: job.results.skippedFiles,
                 processingTime: job.startTime && job.endTime 
                     ? job.endTime.getTime() - job.startTime.getTime() 
                     : 0
             },
             errors: job.errors,
-            repositories: job.repositories
+            repositories: job.repositories,
+            config: job.config
         };
+    }
+
+    pauseJob(jobId: string): void {
+        const job = this.jobs.get(jobId);
+        if (job && job.status === 'running') {
+            job.status = 'paused';
+        }
+    }
+
+    resumeJob(jobId: string): void {
+        const job = this.jobs.get(jobId);
+        if (job && job.status === 'paused') {
+            job.status = 'running';
+        }
+    }
+
+    private async waitForResume(jobId: string): Promise<void> {
+        return new Promise((resolve) => {
+            const checkInterval = setInterval(() => {
+                const job = this.jobs.get(jobId);
+                if (!job || job.status !== 'paused') {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 1000);
+        });
+    }
+
+    private isMemoryUsageHigh(): boolean {
+        const used = process.memoryUsage();
+        const total = used.heapTotal;
+        const usage = used.heapUsed / total;
+        return usage > 0.8; // 80% threshold
+    }
+
+    private async pauseForMemoryCleanup(): Promise<void> {
+        if (global.gc) {
+            global.gc();
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+}
+
+class Semaphore {
+    private permits: number;
+    private waitingQueue: Array<() => void> = [];
+
+    constructor(permits: number) {
+        this.permits = permits;
+    }
+
+    async acquire<T>(task: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            const executeTask = async () => {
+                try {
+                    const result = await task();
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                } finally {
+                    this.release();
+                }
+            };
+
+            if (this.permits > 0) {
+                this.permits--;
+                executeTask();
+            } else {
+                this.waitingQueue.push(executeTask);
+            }
+        });
+    }
+
+    private release(): void {
+        if (this.waitingQueue.length > 0) {
+            const nextTask = this.waitingQueue.shift();
+            if (nextTask) {
+                nextTask();
+            }
+        } else {
+            this.permits++;
+        }
     }
 }
