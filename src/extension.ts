@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage(`Extension Status:\n${status}`);
             
         } catch (error) {
-            vscode.window.showErrorMessage(`Test failed: ${error}`);
+            vscode.window.showErrorMessage(`Test failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
@@ -69,7 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             vscode.window.showInformationMessage('Repository connected to Neo4j');
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to connect repository: ${error}`);
+            vscode.window.showErrorMessage(`Failed to connect repository: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
@@ -82,7 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
             const browserUri = await neo4jService.getNeo4jBrowserUri();
             await vscode.env.openExternal(vscode.Uri.parse(browserUri));
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to open Neo4j browser: ${error}`);
+            vscode.window.showErrorMessage(`Failed to open Neo4j browser: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
