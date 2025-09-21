@@ -18,6 +18,16 @@ export class ComplexityAnalyzer {
             if (trimmed.includes('catch ') || trimmed.includes('&&') || trimmed.includes('||')) complexity++;
         }
         
-        return complexity;
+    calculateLinesOfCode(content: string): number {
+        const lines = content.split('\n');
+        let loc = 0;
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*')) {
+                loc++;
+            }
+        }
+        
+        return loc;
     }
-}
