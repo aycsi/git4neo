@@ -18,6 +18,9 @@ export class ComplexityAnalyzer {
             if (trimmed.includes('catch ') || trimmed.includes('&&') || trimmed.includes('||')) complexity++;
         }
         
+        return complexity;
+    }
+
     calculateLinesOfCode(content: string): number {
         const lines = content.split('\n');
         let loc = 0;
