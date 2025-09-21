@@ -374,4 +374,17 @@ export class RepositoryAnalyzer {
             });
         }
     }
+
+    private async analyzeDependencies(repoPath: string, repositoryId: string): Promise<void> {
+        const dependencies = await this.dependencyAnalyzer.analyzePackageJson(repoPath);
+        
+        for (const dependency of dependencies) {
+            await this.neo4jService.createDependencyNode({
+                name: dependency.name,
+                version: dependency.version,
+                type: dependency.type,
+                repositoryId
+            });
+        }
+    }
 }
