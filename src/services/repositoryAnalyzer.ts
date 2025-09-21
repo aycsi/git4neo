@@ -1,4 +1,4 @@
-import { GitHistoryService } from './gitHistoryService';
+import { DependencyAnalyzer } from './dependencyAnalyzer';
 
 export interface AnalysisConfig {
     maxFileSize: number;
