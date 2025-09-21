@@ -11,7 +11,20 @@ export interface CommitInfo {
 export class GitHistoryService {
     private git: SimpleGit | null = null;
 
-    async initialize(repoPath: string): Promise<void> {
-        this.git = simpleGit(repoPath);
+    async getCommitHistory(limit?: number): Promise<CommitInfo[]> {
+        if (!this.git) throw new Error('Git not initialized');
+
+        const log = await this.git.log({ maxCount: limit || 100 });
+        const commits: CommitInfo[] = [];
+
+        for (const commit of log.all) {
+            commits.push({
+                hash: commit.hash,
+                message: commit.message,
+                author: commit.author_name,
+                date: new Date(commit.date)
+            });
+        }
+
+        return commits;
     }
-}
