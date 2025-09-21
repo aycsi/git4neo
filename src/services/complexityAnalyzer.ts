@@ -40,4 +40,16 @@ export class ComplexityAnalyzer {
         const maintainabilityIndex = 171 - 5.2 * Math.log(halsteadVolume) - 0.23 * complexity - 16.2 * Math.log(loc);
         return Math.max(0, Math.min(100, maintainabilityIndex));
     }
+
+    calculateAllMetrics(content: string): ComplexityMetrics {
+        const complexity = this.calculateCyclomaticComplexity(content);
+        const loc = this.calculateLinesOfCode(content);
+        const maintainability = this.calculateMaintainabilityIndex(complexity, loc);
+        
+        return {
+            cyclomaticComplexity: complexity,
+            linesOfCode: loc,
+            maintainabilityIndex: maintainability
+        };
+    }
 }
