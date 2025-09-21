@@ -612,4 +612,61 @@ export class GitHubService {
     private getLanguages(repo: string): string[] {
         return [];
     }
+
+    extractHooks(content: string, filePath: string): HookInfo[] {
+        const hooks: HookInfo[] = [];
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            
+            if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) {
+                continue;
+            }
+
+            const hookMatch = trimmed.match(/(use\w+)\s*\(/);
+            if (hookMatch) {
+                hooks.push({
+                    name: hookMatch[1],
+                    filePath: filePath,
+                    lineNumber: i + 1,
+                    type: 'hook',
+                    dependencies: [],
+                    returnType: 'any'
+                });
+            }
+        }
+
+        return hooks;
+    }
+
+    extractDecorators(content: string, filePath: string): DecoratorInfo[] {
+        const decorators: DecoratorInfo[] = [];
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            
+            if (!trimmed || !trimmed.startsWith('@')) {
+                continue;
+            }
+
+            const decoratorMatch = trimmed.match(/@(\w+)(?:\(([^)]*)\))?/);
+            if (decoratorMatch) {
+                const args = decoratorMatch[2] ? decoratorMatch[2].split(',').map(arg => arg.trim()) : [];
+                
+                decorators.push({
+                    name: decoratorMatch[1],
+                    filePath: filePath,
+                    lineNumber: i + 1,
+                    target: '',
+                    arguments: args
+                });
+            }
+        }
+
+        return decorators;
+    }
 }
