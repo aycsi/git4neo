@@ -503,7 +503,35 @@ export class Neo4jService {
         }
     }
 
-    async batchCreateNodes(nodes: Array<{type: string, data: any}>): Promise<void> {
+    async createCommitNode(commitData: {
+        hash: string;
+        message: string;
+        author: string;
+        date: Date;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (c:Commit {hash: $hash, repositoryId: $repositoryId})
+                SET c.message = $message,
+                    c.author = $author,
+                    c.date = datetime($date),
+                    c.createdAt = datetime()
+                MERGE (r)-[:HAS_COMMIT]->(c)
+                RETURN c.hash as id
+            `, commitData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
         if (!this.driver) {
             throw new Error('Not connected to Neo4j');
         }
