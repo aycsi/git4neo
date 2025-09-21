@@ -56,6 +56,9 @@ export class RepositoryAnalyzer {
             progress?.report({ increment: 50, message: 'Analyzing git history...' });
             await this.analyzeGitHistory(repoPath, repositoryId);
 
+            progress?.report({ increment: 60, message: 'Analyzing dependencies...' });
+            await this.analyzeDependencies(repoPath, repositoryId);
+
             progress?.report({ increment: 90, message: 'Cleaning up...' });
             await this.githubService.cleanup();
 
