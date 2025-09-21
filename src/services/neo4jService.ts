@@ -577,4 +577,32 @@ export class Neo4jService {
             this.releaseSession(session);
         }
     }
+
+    async createDependencyNode(dependencyData: {
+        name: string;
+        version: string;
+        type: string;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (d:Dependency {name: $name, repositoryId: $repositoryId})
+                SET d.version = $version,
+                    d.type = $type,
+                    d.createdAt = datetime()
+                MERGE (r)-[:HAS_DEPENDENCY]->(d)
+                RETURN d.name as id
+            `, dependencyData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
 }
