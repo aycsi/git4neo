@@ -28,6 +28,16 @@ export class DependencyAnalyzer {
             }
         }
 
+        if (packageJson.devDependencies) {
+            for (const [name, version] of Object.entries(packageJson.devDependencies)) {
+                dependencies.push({
+                    name,
+                    version: version as string,
+                    type: 'devDependency'
+                });
+            }
+        }
+
         return dependencies;
     }
 }
