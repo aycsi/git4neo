@@ -90,7 +90,26 @@ export function activate(context: vscode.ExtensionContext) {
         batchManagerView.show();
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager);
+    const runQuery = vscode.commands.registerCommand('git4neo.runQuery', async () => {
+        const query = await vscode.window.showInputBox({
+            prompt: 'Enter Cypher query',
+            placeHolder: 'MATCH (n) RETURN n LIMIT 10'
+        });
+        
+        if (query) {
+            try {
+                await neo4jService.connect();
+                const results = await neo4jService.executeQuery(query);
+                await neo4jService.disconnect();
+                
+                vscode.window.showInformationMessage(`Query returned ${results.length} results`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery);
 }
 
 export function deactivate() {}
