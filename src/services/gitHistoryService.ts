@@ -11,6 +11,10 @@ export interface CommitInfo {
 export class GitHistoryService {
     private git: SimpleGit | null = null;
 
+    async initialize(repoPath: string): Promise<void> {
+        this.git = simpleGit(repoPath);
+    }
+
     async getCommitHistory(limit?: number): Promise<CommitInfo[]> {
         if (!this.git) throw new Error('Git not initialized');
 
