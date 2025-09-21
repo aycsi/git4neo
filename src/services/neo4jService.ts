@@ -605,4 +605,34 @@ export class Neo4jService {
             this.releaseSession(session);
         }
     }
+
+    async createComplexityNode(complexityData: {
+        filePath: string;
+        cyclomaticComplexity: number;
+        linesOfCode: number;
+        maintainabilityIndex: number;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (f:File {path: $filePath, repositoryId: $repositoryId})
+                MERGE (c:Complexity {filePath: $filePath, repositoryId: $repositoryId})
+                SET c.cyclomaticComplexity = $cyclomaticComplexity,
+                    c.linesOfCode = $linesOfCode,
+                    c.maintainabilityIndex = $maintainabilityIndex,
+                    c.createdAt = datetime()
+                MERGE (f)-[:HAS_COMPLEXITY]->(c)
+                RETURN c.filePath as id
+            `, complexityData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
 }
