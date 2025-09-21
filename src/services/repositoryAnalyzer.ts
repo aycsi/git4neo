@@ -60,6 +60,9 @@ export class RepositoryAnalyzer {
             progress?.report({ increment: 60, message: 'Analyzing dependencies...' });
             await this.analyzeDependencies(repoPath, repositoryId);
 
+            progress?.report({ increment: 70, message: 'Analyzing complexity...' });
+            await this.analyzeComplexity(repoPath, repositoryId);
+
             progress?.report({ increment: 90, message: 'Cleaning up...' });
             await this.githubService.cleanup();
 
