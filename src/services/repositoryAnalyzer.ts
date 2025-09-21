@@ -1,6 +1,4 @@
-import * as vscode from 'vscode';
-import { Neo4jService } from './neo4jService';
-import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig, HookInfo, DecoratorInfo } from './githubService';
+import { GitHistoryService } from './gitHistoryService';
 
 export interface AnalysisConfig {
     maxFileSize: number;
