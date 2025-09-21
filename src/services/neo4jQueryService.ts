@@ -29,6 +29,16 @@ export class Neo4jQueryService {
             RETURN c.date as date, c.author as author, c.message as message
             ORDER BY c.date DESC
             LIMIT 50
+        `,
+        
+        CODE_QUALITY_SUMMARY: `
+            MATCH (r:Repository)-[:CONTAINS]->(f:File)-[:HAS_COMPLEXITY]->(c:Complexity)
+            WHERE r.fullName = $repositoryId
+            RETURN 
+                count(f) as totalFiles,
+                avg(c.cyclomaticComplexity) as avgComplexity,
+                avg(c.linesOfCode) as avgLoc,
+                avg(c.maintainabilityIndex) as avgMaintainability
         `
     };
 }
