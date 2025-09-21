@@ -14,6 +14,8 @@ export class RepositoryAnalyzer {
         private githubService: GitHubService
     ) {}
 
+    private gitHistoryService = new GitHistoryService();
+
     async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
         const analysisConfig: AnalysisConfig = {
             maxFileSize: config?.maxFileSize || 1024 * 1024, // 1MB
