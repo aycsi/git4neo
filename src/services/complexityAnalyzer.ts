@@ -14,8 +14,10 @@ export class ComplexityAnalyzer {
             
             if (trimmed.includes('if ') || trimmed.includes('else if')) complexity++;
             if (trimmed.includes('for ') || trimmed.includes('while ')) complexity++;
-            if (trimmed.includes('switch ') || trimmed.includes('case ')) complexity++;
-            if (trimmed.includes('catch ') || trimmed.includes('&&') || trimmed.includes('||')) complexity++;
+            if (trimmed.includes('switch ')) complexity++;
+            if (trimmed.includes('catch ')) complexity++;
+            
+            if (trimmed.includes('&&') || trimmed.includes('||')) complexity++;
         }
         
         return complexity;
@@ -27,7 +29,12 @@ export class ComplexityAnalyzer {
         
         for (const line of lines) {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*')) {
+            if (trimmed && 
+                !trimmed.startsWith('//') && 
+                !trimmed.startsWith('*') && 
+                !trimmed.startsWith('/*') &&
+                !trimmed.startsWith('}') &&
+                trimmed !== '{') {
                 loc++;
             }
         }
