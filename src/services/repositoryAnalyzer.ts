@@ -355,4 +355,19 @@ export class RepositoryAnalyzer {
         await this.neo4jService.disconnect();
         return stats;
     }
+
+    private async analyzeGitHistory(repoPath: string, repositoryId: string): Promise<void> {
+        await this.gitHistoryService.initialize(repoPath);
+        const commits = await this.gitHistoryService.getCommitHistory(100);
+        
+        for (const commit of commits) {
+            await this.neo4jService.createCommitNode({
+                hash: commit.hash,
+                message: commit.message,
+                author: commit.author,
+                date: commit.date,
+                repositoryId
+            });
+        }
+    }
 }
