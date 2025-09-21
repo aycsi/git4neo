@@ -1,4 +1,4 @@
-import { DependencyAnalyzer } from './dependencyAnalyzer';
+import { ComplexityAnalyzer } from './complexityAnalyzer';
 
 export interface AnalysisConfig {
     maxFileSize: number;
