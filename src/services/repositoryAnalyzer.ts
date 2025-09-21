@@ -15,6 +15,7 @@ export class RepositoryAnalyzer {
     ) {}
 
     private gitHistoryService = new GitHistoryService();
+    private dependencyAnalyzer = new DependencyAnalyzer();
 
     async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
         const analysisConfig: AnalysisConfig = {
