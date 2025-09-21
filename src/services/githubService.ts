@@ -52,6 +52,23 @@ export interface ClassInfo {
     implements: string[];
 }
 
+export interface HookInfo {
+    name: string;
+    filePath: string;
+    lineNumber: number;
+    type: string;
+    dependencies?: string[];
+    returnType?: string;
+}
+
+export interface DecoratorInfo {
+    name: string;
+    filePath: string;
+    lineNumber: number;
+    target: string;
+    arguments?: string[];
+}
+
 export class GitHubService {
     private octokit: Octokit | null = null;
     private tempDir: string = '';
