@@ -20,7 +20,8 @@
     "onCommand:git4neo.connectRepository",
     "onCommand:git4neo.connectMultipleRepositories",
     "onCommand:git4neo.viewGraph",
-    "onCommand:git4neo.openBatchManager"
+    "onCommand:git4neo.openBatchManager",
+    "onCommand:git4neo.runQuery"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -44,6 +45,10 @@
       {
         "command": "git4neo.openBatchManager",
         "title": "Git4Neo: Open Batch Manager"
+      },
+      {
+        "command": "git4neo.runQuery",
+        "title": "Git4Neo: Run Cypher Query"
       }
     ],
     "configuration": {
