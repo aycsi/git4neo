@@ -635,4 +635,18 @@ export class Neo4jService {
             this.releaseSession(session);
         }
     }
+
+    async executeQuery(query: string, params?: any): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(query, params);
+            return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
 }
