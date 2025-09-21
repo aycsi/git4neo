@@ -5,10 +5,18 @@
       "version": "0.0.5",
   "publisher": "aycsi",
   "icon": "icon.png",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/aycsi/git4neo.git"
-  },
+  "keywords": [
+    "neo4j",
+    "git",
+    "repository-analysis",
+    "code-quality",
+    "graph-database",
+    "github",
+    "dependencies",
+    "complexity",
+    "cypher",
+    "data-science"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },
