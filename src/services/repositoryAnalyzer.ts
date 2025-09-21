@@ -391,4 +391,24 @@ export class RepositoryAnalyzer {
             });
         }
     }
+
+    private async analyzeComplexity(repoPath: string, repositoryId: string): Promise<void> {
+        const files = await this.githubService.getAllFiles(repoPath);
+        
+        for (const file of files) {
+            if (file.content) {
+                const complexity = this.complexityAnalyzer.calculateCyclomaticComplexity(file.content);
+                const loc = this.complexityAnalyzer.calculateLinesOfCode(file.content);
+                const maintainability = this.complexityAnalyzer.calculateMaintainabilityIndex(complexity, loc);
+                
+                await this.neo4jService.createComplexityNode({
+                    filePath: file.path,
+                    cyclomaticComplexity: complexity,
+                    linesOfCode: loc,
+                    maintainabilityIndex: maintainability,
+                    repositoryId
+                });
+            }
+        }
+    }
 }
