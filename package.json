@@ -1,7 +1,7 @@
 {
   "name": "git4neo",
   "displayName": "Git4Neo",
-  "description": "Elite repository analysis tool that converts GitHub repositories into comprehensive Neo4j graphs with git history, dependencies, code quality metrics, and advanced analytics",
+  "description": "A comprehensive tool to get repository data towards Neo4j",
   "version": "0.0.6",
   "publisher": "aycsi",
   "icon": "icon.png",
