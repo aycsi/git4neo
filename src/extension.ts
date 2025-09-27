@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
                 cancellable: false
             }, async (progress) => {
                 progress.report({ increment: 0 });
-                await repositoryAnalyzer.analyzeRepository(repoUrl!, progress);
+                await repositoryAnalyzer.analyzeRepository(repoUrl!, undefined, progress);
                 progress.report({ increment: 100 });
             });
 

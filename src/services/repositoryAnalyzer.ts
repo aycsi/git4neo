@@ -1,3 +1,8 @@
+import * as vscode from 'vscode';
+import { Neo4jService } from './neo4jService';
+import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig } from './githubService';
+import { GitHistoryService } from './gitHistoryService';
+import { DependencyAnalyzer } from './dependencyAnalyzer';
 import { ComplexityAnalyzer } from './complexityAnalyzer';
 
 export interface AnalysisConfig {
@@ -49,19 +54,19 @@ export class RepositoryAnalyzer {
             progress?.report({ increment: 40, message: 'Analyzing files...' });
             
             if (analysisConfig.enableStreaming) {
-                await this.analyzeRepositoryStreaming(repoPath, repositoryId, streamingConfig, progress);
+                await this.analyzeRepositoryStreaming(repoPath!, repositoryId, streamingConfig, progress);
             } else {
-                await this.analyzeRepositoryBatch(repoPath, repositoryId, streamingConfig, progress);
+                await this.analyzeRepositoryBatch(repoPath!, repositoryId, streamingConfig, progress);
             }
 
             progress?.report({ increment: 50, message: 'Analyzing git history...' });
-            await this.analyzeGitHistory(repoPath, repositoryId);
+            await this.analyzeGitHistory(repoPath!, repositoryId);
 
             progress?.report({ increment: 60, message: 'Analyzing dependencies...' });
-            await this.analyzeDependencies(repoPath, repositoryId);
+            await this.analyzeDependencies(repoPath!, repositoryId);
 
             progress?.report({ increment: 70, message: 'Analyzing complexity...' });
-            await this.analyzeComplexity(repoPath, repositoryId);
+            await this.analyzeComplexity(repoPath!, repositoryId);
 
             progress?.report({ increment: 90, message: 'Cleaning up...' });
             await this.githubService.cleanup();
@@ -373,7 +378,10 @@ export class RepositoryAnalyzer {
                 hash: commit.hash,
                 message: commit.message,
                 author: commit.author,
+                email: '', 
                 date: commit.date,
+                insertions: 0, 
+                deletions: 0,
                 repositoryId
             });
         }

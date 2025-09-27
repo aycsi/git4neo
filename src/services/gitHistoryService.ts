@@ -32,3 +32,4 @@ export class GitHistoryService {
 
         return commits;
     }
+}

@@ -96,11 +96,14 @@ export class BatchProcessor {
             const totalBatches = Math.ceil(job.repositories.length / batchSize);
 
             for (let i = 0; i < totalBatches; i++) {
-                if (job.status === 'paused') {
+                const currentJob = this.jobs.get(jobId);
+                if (!currentJob) break;
+                
+                if (currentJob.status === 'paused') {
                     await this.waitForResume(jobId);
                 }
 
-                if (job.status === 'failed') {
+                if (currentJob.status === 'failed') {
                     break;
                 }
 
