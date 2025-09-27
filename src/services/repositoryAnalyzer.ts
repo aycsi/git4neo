@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { Neo4jService } from './neo4jService';
-import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig, HookInfo, DecoratorInfo } from './githubService';
+import { GitHubService, RepositoryInfo, FileInfo, FunctionInfo, ClassInfo, StreamingConfig } from './githubService';
+import { GitHistoryService } from './gitHistoryService';
+import { DependencyAnalyzer } from './dependencyAnalyzer';
+import { ComplexityAnalyzer } from './complexityAnalyzer';
 
 export interface AnalysisConfig {
     maxFileSize: number;
@@ -15,6 +18,10 @@ export class RepositoryAnalyzer {
         private neo4jService: Neo4jService,
         private githubService: GitHubService
     ) {}
+
+    private gitHistoryService = new GitHistoryService();
+    private dependencyAnalyzer = new DependencyAnalyzer();
+    private complexityAnalyzer = new ComplexityAnalyzer();
 
     async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
         const analysisConfig: AnalysisConfig = {
@@ -47,10 +54,19 @@ export class RepositoryAnalyzer {
             progress?.report({ increment: 40, message: 'Analyzing files...' });
             
             if (analysisConfig.enableStreaming) {
-                await this.analyzeRepositoryStreaming(repoPath, repositoryId, streamingConfig, progress);
+                await this.analyzeRepositoryStreaming(repoPath!, repositoryId, streamingConfig, progress);
             } else {
-                await this.analyzeRepositoryBatch(repoPath, repositoryId, streamingConfig, progress);
+                await this.analyzeRepositoryBatch(repoPath!, repositoryId, streamingConfig, progress);
             }
+
+            progress?.report({ increment: 50, message: 'Analyzing git history...' });
+            await this.analyzeGitHistory(repoPath!, repositoryId);
+
+            progress?.report({ increment: 60, message: 'Analyzing dependencies...' });
+            await this.analyzeDependencies(repoPath!, repositoryId);
+
+            progress?.report({ increment: 70, message: 'Analyzing complexity...' });
+            await this.analyzeComplexity(repoPath!, repositoryId);
 
             progress?.report({ increment: 90, message: 'Cleaning up...' });
             await this.githubService.cleanup();
@@ -351,5 +367,121 @@ export class RepositoryAnalyzer {
         const stats = await this.neo4jService.getRepositoryStats(repositoryId);
         await this.neo4jService.disconnect();
         return stats;
+    }
+
+    private async analyzeGitHistory(repoPath: string, repositoryId: string): Promise<void> {
+        await this.gitHistoryService.initialize(repoPath);
+        const commits = await this.gitHistoryService.getCommitHistory(100);
+        
+        const uniqueAuthors = new Set<string>();
+        const collaborations = await this.gitHistoryService.getCollaborationData();
+        
+        for (const commit of commits) {
+            uniqueAuthors.add(commit.email);
+            
+            await this.neo4jService.createCommitNode({
+                hash: commit.hash,
+                message: commit.message,
+                author: commit.author,
+                email: commit.email,
+                date: commit.date,
+                insertions: commit.insertions,
+                deletions: commit.deletions,
+                repositoryId
+            });
+        }
+
+        for (const email of uniqueAuthors) {
+            const authorInfo = await this.gitHistoryService.getAuthorInfo(email);
+            await this.neo4jService.createAuthorNode({
+                name: authorInfo.name,
+                email: authorInfo.email,
+                team: authorInfo.team,
+                role: authorInfo.role,
+                timezone: authorInfo.timezone,
+                joinDate: authorInfo.joinDate,
+                repositoryId
+            });
+
+            const workPatterns = await this.gitHistoryService.getWorkPatterns(email, 20);
+            for (const pattern of workPatterns) {
+                await this.neo4jService.createWorkPatternNode({
+                    timeOfDay: pattern.timeOfDay,
+                    dayOfWeek: pattern.dayOfWeek,
+                    duration: pattern.duration,
+                    focus: pattern.focus,
+                    motivation: pattern.motivation,
+                    repositoryId
+                });
+            }
+        }
+
+        for (const [author, collaborators] of collaborations) {
+            for (const collaborator of collaborators) {
+                await this.neo4jService.createCollaborationRelationship(
+                    author, 
+                    collaborator, 
+                    repositoryId, 
+                    collaborators.length
+                );
+            }
+        }
+
+        const teams = new Set<string>();
+        for (const email of uniqueAuthors) {
+            const authorInfo = await this.gitHistoryService.getAuthorInfo(email);
+            if (authorInfo.team) {
+                teams.add(authorInfo.team);
+            }
+        }
+
+        for (const teamName of teams) {
+            await this.neo4jService.createTeamNode({
+                name: teamName,
+                size: Array.from(uniqueAuthors).filter(email => {
+                    const authorInfo = this.gitHistoryService.getAuthorInfo(email);
+                    return authorInfo.then(info => info.team === teamName);
+                }).length,
+                repositoryId
+            });
+        }
+
+        for (const email of uniqueAuthors) {
+            const authorInfo = await this.gitHistoryService.getAuthorInfo(email);
+            if (authorInfo.team) {
+                await this.neo4jService.createAuthorTeamRelationship(email, authorInfo.team, repositoryId);
+            }
+        }
+    }
+
+    private async analyzeDependencies(repoPath: string, repositoryId: string): Promise<void> {
+        const dependencies = await this.dependencyAnalyzer.analyzePackageJson(repoPath);
+        
+        for (const dependency of dependencies) {
+            await this.neo4jService.createDependencyNode({
+                name: dependency.name,
+                version: dependency.version,
+                type: dependency.type,
+                repositoryId
+            });
+        }
+    }
+
+    private async analyzeComplexity(repoPath: string, repositoryId: string): Promise<void> {
+        const files = await this.githubService.getAllFiles(repoPath);
+        
+        for (const file of files) {
+            if (file.content) {
+                const metrics = this.complexityAnalyzer.calculateAllMetrics(file.content);
+                
+                await this.neo4jService.createComplexityNode({
+                    filePath: file.path,
+                    cyclomaticComplexity: metrics.cyclomaticComplexity,
+                    linesOfCode: metrics.linesOfCode,
+                    maintainabilityIndex: metrics.maintainabilityIndex,
+                    repositoryId
+                });
+            }
+        }
     }
 }

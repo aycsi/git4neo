@@ -1,18 +1,24 @@
 {
   "name": "git4neo",
   "displayName": "Git4Neo",
-  "description": "Convert GitHub repositories into Neo4j graphs",
-      "version": "0.0.5",
+  "description": "A comprehensive tool to get repository data towards Neo4j",
+  "version": "0.0.7",
   "publisher": "aycsi",
   "icon": "icon.png",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/aycsi/git4neo.git"
-  },
+  "keywords": [
+    "neo4j",
+    "git",
+    "repository",
+    "graph",
+    "database",
+    "github",
+    "data-science"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
+    "Data Science",
     "Other"
   ],
   "activationEvents": [
@@ -20,7 +26,8 @@
     "onCommand:git4neo.connectRepository",
     "onCommand:git4neo.connectMultipleRepositories",
     "onCommand:git4neo.viewGraph",
-    "onCommand:git4neo.openBatchManager"
+    "onCommand:git4neo.openBatchManager",
+    "onCommand:git4neo.runQuery"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -44,6 +51,10 @@
       {
         "command": "git4neo.openBatchManager",
         "title": "Git4Neo: Open Batch Manager"
+      },
+      {
+        "command": "git4neo.runQuery",
+        "title": "Git4Neo: Run Cypher Query"
       }
     ],
     "configuration": {
@@ -116,11 +127,15 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "jest"
   },
   "devDependencies": {
+    "@types/jest": "^29.0.0",
     "@types/node": "16.x",
     "@types/vscode": "^1.74.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.0.0",
     "typescript": "^4.9.5"
   },
   "dependencies": {

@@ -1,0 +1,62 @@
+export interface ComplexityMetrics {
+    cyclomaticComplexity: number;
+    linesOfCode: number;
+    maintainabilityIndex: number;
+}
+
+export class ComplexityAnalyzer {
+    calculateCyclomaticComplexity(content: string): number {
+        const lines = content.split('\n');
+        let complexity = 1;
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            
+            if (trimmed.includes('if ') || trimmed.includes('else if')) complexity++;
+            if (trimmed.includes('for ') || trimmed.includes('while ')) complexity++;
+            if (trimmed.includes('switch ')) complexity++;
+            if (trimmed.includes('catch ')) complexity++;
+            
+            if (trimmed.includes('&&') || trimmed.includes('||')) complexity++;
+        }
+        
+        return complexity;
+    }
+
+    calculateLinesOfCode(content: string): number {
+        const lines = content.split('\n');
+        let loc = 0;
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && 
+                !trimmed.startsWith('//') && 
+                !trimmed.startsWith('*') && 
+                !trimmed.startsWith('/*') &&
+                !trimmed.startsWith('}') &&
+                trimmed !== '{') {
+                loc++;
+            }
+        }
+        
+        return loc;
+    }
+
+    calculateMaintainabilityIndex(complexity: number, loc: number): number {
+        const halsteadVolume = loc * Math.log2(loc + 1);
+        const maintainabilityIndex = 171 - 5.2 * Math.log(halsteadVolume) - 0.23 * complexity - 16.2 * Math.log(loc);
+        return Math.max(0, Math.min(100, maintainabilityIndex));
+    }
+
+    calculateAllMetrics(content: string): ComplexityMetrics {
+        const complexity = this.calculateCyclomaticComplexity(content);
+        const loc = this.calculateLinesOfCode(content);
+        const maintainability = this.calculateMaintainabilityIndex(complexity, loc);
+        
+        return {
+            cyclomaticComplexity: complexity,
+            linesOfCode: loc,
+            maintainabilityIndex: maintainability
+        };
+    }
+}

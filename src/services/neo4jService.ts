@@ -79,7 +79,6 @@ export class Neo4jService {
     }
 
     async disconnect(): Promise<void> {
-        // Close all sessions in the pool
         for (const session of this.sessionPool) {
             await session.close();
         }
@@ -367,7 +366,143 @@ export class Neo4jService {
         }
     }
 
-    async batchCreateNodes(nodes: Array<{type: string, data: any}>): Promise<void> {
+    async createCommitNode(commitData: {
+        hash: string;
+        message: string;
+        author: string;
+        email: string;
+        date: Date;
+        insertions: number;
+        deletions: number;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (c:Commit {hash: $hash, repositoryId: $repositoryId})
+                SET c.message = $message,
+                    c.author = $author,
+                    c.email = $email,
+                    c.date = datetime($date),
+                    c.insertions = $insertions,
+                    c.deletions = $deletions,
+                    c.createdAt = datetime()
+                MERGE (r)-[:HAS_COMMIT]->(c)
+                RETURN c.hash as id
+            `, commitData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createBranchNode(branchData: {
+        name: string;
+        isCurrent: boolean;
+        lastCommit: string;
+        commitCount: number;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (b:Branch {name: $name, repositoryId: $repositoryId})
+                SET b.isCurrent = $isCurrent,
+                    b.lastCommit = $lastCommit,
+                    b.commitCount = $commitCount,
+                    b.createdAt = datetime()
+                MERGE (r)-[:HAS_BRANCH]->(b)
+                RETURN b.name as id
+            `, branchData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createContributorNode(contributorData: {
+        name: string;
+        email: string;
+        commits: number;
+        insertions: number;
+        deletions: number;
+        firstCommit: Date;
+        lastCommit: Date;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (c:Contributor {email: $email, repositoryId: $repositoryId})
+                SET c.name = $name,
+                    c.commits = $commits,
+                    c.insertions = $insertions,
+                    c.deletions = $deletions,
+                    c.firstCommit = datetime($firstCommit),
+                    c.lastCommit = datetime($lastCommit),
+                    c.createdAt = datetime()
+                MERGE (r)-[:HAS_CONTRIBUTOR]->(c)
+                RETURN c.email as id
+            `, contributorData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createCommitFileRelationship(commitHash: string, filePath: string, repositoryId: string): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            await session.run(`
+                MATCH (c:Commit {hash: $commitHash, repositoryId: $repositoryId})
+                MATCH (f:File {path: $filePath, repositoryId: $repositoryId})
+                MERGE (c)-[:MODIFIED]->(f)
+            `, { commitHash, filePath, repositoryId });
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createCommitAuthorRelationship(commitHash: string, authorEmail: string, repositoryId: string): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            await session.run(`
+                MATCH (c:Commit {hash: $commitHash, repositoryId: $repositoryId})
+                MATCH (a:Contributor {email: $authorEmail, repositoryId: $repositoryId})
+                MERGE (c)-[:AUTHORED_BY]->(a)
+            `, { commitHash, authorEmail, repositoryId });
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createBatchNodes(nodes: any[]): Promise<void> {
         if (!this.driver) {
             throw new Error('Not connected to Neo4j');
         }
@@ -409,6 +544,309 @@ export class Neo4jService {
                     await session.run(`UNWIND $batch AS item ${queries.join(' ')}`, { batch });
                 }
             }
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createDependencyNode(dependencyData: {
+        name: string;
+        version: string;
+        type: string;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (d:Dependency {name: $name, repositoryId: $repositoryId})
+                SET d.version = $version,
+                    d.type = $type,
+                    d.createdAt = datetime()
+                MERGE (r)-[:HAS_DEPENDENCY]->(d)
+                RETURN d.name as id
+            `, dependencyData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createComplexityNode(complexityData: {
+        filePath: string;
+        cyclomaticComplexity: number;
+        linesOfCode: number;
+        maintainabilityIndex: number;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (f:File {path: $filePath, repositoryId: $repositoryId})
+                MERGE (c:Complexity {filePath: $filePath, repositoryId: $repositoryId})
+                SET c.cyclomaticComplexity = $cyclomaticComplexity,
+                    c.linesOfCode = $linesOfCode,
+                    c.maintainabilityIndex = $maintainabilityIndex,
+                    c.createdAt = datetime()
+                MERGE (f)-[:HAS_COMPLEXITY]->(c)
+                RETURN c.filePath as id
+            `, complexityData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createAuthorNode(authorData: {
+        name: string;
+        email: string;
+        team?: string;
+        role?: string;
+        timezone?: string;
+        joinDate?: Date;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (a:Author {email: $email, repositoryId: $repositoryId})
+                SET a.name = $name,
+                    a.team = $team,
+                    a.role = $role,
+                    a.timezone = $timezone,
+                    a.joinDate = datetime($joinDate),
+                    a.createdAt = datetime()
+                MERGE (r)-[:HAS_AUTHOR]->(a)
+                RETURN a.email as id
+            `, authorData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createTeamNode(teamData: {
+        name: string;
+        size?: number;
+        lead?: string;
+        focus?: string;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (t:Team {name: $name, repositoryId: $repositoryId})
+                SET t.size = $size,
+                    t.lead = $lead,
+                    t.focus = $focus,
+                    t.createdAt = datetime()
+                MERGE (r)-[:HAS_TEAM]->(t)
+                RETURN t.name as id
+            `, teamData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createWorkPatternNode(patternData: {
+        timeOfDay: string;
+        dayOfWeek: string;
+        duration: string;
+        focus: string;
+        motivation: string;
+        repositoryId: string;
+    }): Promise<string> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r:Repository {fullName: $repositoryId})
+                MERGE (w:WorkPattern {
+                    timeOfDay: $timeOfDay,
+                    dayOfWeek: $dayOfWeek,
+                    repositoryId: $repositoryId
+                })
+                SET w.duration = $duration,
+                    w.focus = $focus,
+                    w.motivation = $motivation,
+                    w.createdAt = datetime()
+                MERGE (r)-[:HAS_PATTERN]->(w)
+                RETURN w.timeOfDay + '_' + w.dayOfWeek as id
+            `, patternData);
+
+            return result.records[0].get('id');
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createAuthorTeamRelationship(authorEmail: string, teamName: string, repositoryId: string): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            await session.run(`
+                MATCH (a:Author {email: $authorEmail, repositoryId: $repositoryId})
+                MATCH (t:Team {name: $teamName, repositoryId: $repositoryId})
+                MERGE (a)-[:MEMBER_OF]->(t)
+            `, { authorEmail, teamName, repositoryId });
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createCollaborationRelationship(author1Email: string, author2Email: string, repositoryId: string, strength: number): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            await session.run(`
+                MATCH (a1:Author {email: $author1Email, repositoryId: $repositoryId})
+                MATCH (a2:Author {email: $author2Email, repositoryId: $repositoryId})
+                MERGE (a1)-[:COLLABORATES_WITH {strength: $strength}]->(a2)
+            `, { author1Email, author2Email, repositoryId, strength });
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async createCommitWorkPatternRelationship(commitHash: string, patternId: string, repositoryId: string): Promise<void> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            await session.run(`
+                MATCH (c:Commit {hash: $commitHash, repositoryId: $repositoryId})
+                MATCH (w:WorkPattern {repositoryId: $repositoryId})
+                WHERE w.timeOfDay + '_' + w.dayOfWeek = $patternId
+                MERGE (c)-[:FOLLOWS_PATTERN]->(w)
+            `, { commitHash, patternId, repositoryId });
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async getTeamCollaborationInsights(repositoryId: string): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+                RETURN t.name as team, f.path as filePath, count(c) as commits
+                ORDER BY team, commits DESC
+            `, { repositoryId });
+
+            return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async getCrossTeamCollaboration(repositoryId: string): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (a1:Author {repositoryId: $repositoryId})-[:COLLABORATES_WITH]->(a2:Author {repositoryId: $repositoryId})
+                MATCH (a1)-[:MEMBER_OF]->(t1:Team {repositoryId: $repositoryId})
+                MATCH (a2)-[:MEMBER_OF]->(t2:Team {repositoryId: $repositoryId})
+                WHERE t1.name <> t2.name
+                RETURN t1.name as team1, t2.name as team2, count(*) as collaborations
+                ORDER BY collaborations DESC
+            `, { repositoryId });
+
+            return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async getCodeOwnershipInsights(repositoryId: string): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (a:Author {repositoryId: $repositoryId})-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+                RETURN f.path as filePath, a.name as author, a.team as team, count(c) as expertiseScore
+                ORDER BY filePath, expertiseScore DESC
+            `, { repositoryId });
+
+            return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async getWorkPatternInsights(repositoryId: string): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:FOLLOWS_PATTERN]->(w:WorkPattern {repositoryId: $repositoryId})
+                WHERE w.focus = "deep work"
+                RETURN t.name as team, w.timeOfDay as timeOfDay, avg(c.effort) as productivity
+                ORDER BY team, productivity DESC
+            `, { repositoryId });
+
+            return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async executeQuery(query: string, params?: any): Promise<any[]> {
+        if (!this.driver) {
+            throw new Error('Not connected to Neo4j');
+        }
+
+        const session = this.getSession();
+        try {
+            const result = await session.run(query, params);
+            return result.records.map(record => record.toObject());
         } finally {
             this.releaseSession(session);
         }

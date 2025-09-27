@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage(`Extension Status:\n${status}`);
             
         } catch (error) {
-            vscode.window.showErrorMessage(`Test failed: ${error}`);
+            vscode.window.showErrorMessage(`Test failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
@@ -63,13 +63,13 @@ export function activate(context: vscode.ExtensionContext) {
                 cancellable: false
             }, async (progress) => {
                 progress.report({ increment: 0 });
-                await repositoryAnalyzer.analyzeRepository(repoUrl!, progress);
+                await repositoryAnalyzer.analyzeRepository(repoUrl!, undefined, progress);
                 progress.report({ increment: 100 });
             });
 
             vscode.window.showInformationMessage('Repository connected to Neo4j');
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to connect repository: ${error}`);
+            vscode.window.showErrorMessage(`Failed to connect repository: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
@@ -82,7 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
             const browserUri = await neo4jService.getNeo4jBrowserUri();
             await vscode.env.openExternal(vscode.Uri.parse(browserUri));
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to open Neo4j browser: ${error}`);
+            vscode.window.showErrorMessage(`Failed to open Neo4j browser: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
@@ -90,7 +90,26 @@ export function activate(context: vscode.ExtensionContext) {
         batchManagerView.show();
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager);
+    const runQuery = vscode.commands.registerCommand('git4neo.runQuery', async () => {
+        const query = await vscode.window.showInputBox({
+            prompt: 'Enter Cypher query',
+            placeHolder: 'MATCH (n) RETURN n LIMIT 10'
+        });
+        
+        if (query) {
+            try {
+                await neo4jService.connect();
+                const results = await neo4jService.executeQuery(query);
+                await neo4jService.disconnect();
+                
+                vscode.window.showInformationMessage(`Query returned ${results.length} results`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery);
 }
 
 export function deactivate() {}
