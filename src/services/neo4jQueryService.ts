@@ -39,6 +39,64 @@ export class Neo4jQueryService {
                 avg(c.cyclomaticComplexity) as avgComplexity,
                 avg(c.linesOfCode) as avgLoc,
                 avg(c.maintainabilityIndex) as avgMaintainability
+        `,
+
+        TEAM_COLLABORATION: `
+            MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+            RETURN t.name as team, f.path as filePath, count(c) as commits
+            ORDER BY team, commits DESC
+        `,
+
+        CROSS_TEAM_COLLABORATION: `
+            MATCH (a1:Author {repositoryId: $repositoryId})-[:COLLABORATES_WITH]->(a2:Author {repositoryId: $repositoryId})
+            MATCH (a1)-[:MEMBER_OF]->(t1:Team {repositoryId: $repositoryId})
+            MATCH (a2)-[:MEMBER_OF]->(t2:Team {repositoryId: $repositoryId})
+            WHERE t1.name <> t2.name
+            RETURN t1.name as team1, t2.name as team2, count(*) as collaborations
+            ORDER BY collaborations DESC
+        `,
+
+        CODE_OWNERSHIP: `
+            MATCH (a:Author {repositoryId: $repositoryId})-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+            RETURN f.path as filePath, a.name as author, a.team as team, count(c) as expertiseScore
+            ORDER BY filePath, expertiseScore DESC
+        `,
+
+        WORK_PATTERNS: `
+            MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:FOLLOWS_PATTERN]->(w:WorkPattern {repositoryId: $repositoryId})
+            WHERE w.focus = "deep work"
+            RETURN t.name as team, w.timeOfDay as timeOfDay, avg(c.effort) as productivity
+            ORDER BY team, productivity DESC
+        `,
+
+        TEAM_PRODUCTIVITY: `
+            MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)
+            RETURN t.name as team, 
+                   count(c) as totalCommits,
+                   avg(c.insertions) as avgInsertions,
+                   avg(c.deletions) as avgDeletions,
+                   count(DISTINCT a) as teamSize
+            ORDER BY totalCommits DESC
+        `,
+
+        AUTHOR_EXPERTISE: `
+            MATCH (a:Author {repositoryId: $repositoryId})-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+            WITH a, f, count(c) as commits
+            MATCH (a)-[:MEMBER_OF]->(t:Team {repositoryId: $repositoryId})
+            RETURN a.name as author, 
+                   a.team as team,
+                   a.role as role,
+                   collect({file: f.path, commits: commits})[0..5] as topFiles,
+                   sum(commits) as totalCommits
+            ORDER BY totalCommits DESC
+        `,
+
+        COMMIT_MOTIVATION: `
+            MATCH (c:Commit {repositoryId: $repositoryId})-[:FOLLOWS_PATTERN]->(w:WorkPattern {repositoryId: $repositoryId})
+            RETURN w.motivation as motivation, 
+                   w.focus as focus,
+                   count(c) as frequency
+            ORDER BY frequency DESC
         `
     };
 }

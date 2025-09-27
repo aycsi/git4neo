@@ -2,19 +2,16 @@
   "name": "git4neo",
   "displayName": "Git4Neo",
   "description": "A comprehensive tool to get repository data towards Neo4j",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "aycsi",
   "icon": "icon.png",
   "keywords": [
     "neo4j",
     "git",
-    "repository-analysis",
-    "code-quality",
-    "graph-database",
+    "repository",
+    "graph",
+    "database",
     "github",
-    "dependencies",
-    "complexity",
-    "cypher",
     "data-science"
   ],
   "engines": {
