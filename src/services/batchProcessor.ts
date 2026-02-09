@@ -33,8 +33,6 @@ export interface BatchJob {
 export class BatchProcessor {
     private jobs: Map<string, BatchJob> = new Map();
     private isProcessing = false;
-    private activeConnections = 0;
-    private maxConnections = 10;
 
     constructor(
         private neo4jService: Neo4jService,
