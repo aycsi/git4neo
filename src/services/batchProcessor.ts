@@ -135,8 +135,11 @@ export class BatchProcessor {
             }
 
         } catch (error) {
-            job.status = 'failed';
-            job.errors.push(error instanceof Error ? error.message : String(error));
+            const errorJob = this.jobs.get(jobId);
+            if (errorJob) {
+                errorJob.status = 'failed';
+                errorJob.errors.push(error instanceof Error ? error.message : String(error));
+            }
             throw error;
         } finally {
             this.isProcessing = false;
