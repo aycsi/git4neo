@@ -156,7 +156,7 @@ export class BatchProcessor {
                 try {
                     progress?.report({ message: `Analyzing ${repoUrl}...` });
                     
-                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, job.config);
+                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, job.config, progress, true);
                     
                     job.results.successRepos++;
                     job.results.processedRepos++;
