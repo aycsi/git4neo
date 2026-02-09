@@ -156,7 +156,13 @@ export class BatchProcessor {
                 try {
                     progress?.report({ message: `Analyzing ${repoUrl}...` });
                     
-                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, job.config, progress, true);
+                    const analysisConfig = {
+                        maxFileSize: job.config.maxFileSize,
+                        enableStreaming: job.config.enableStreaming,
+                        batchSize: job.config.batchSize
+                    };
+                    
+                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, analysisConfig, progress, true);
                     
                     job.results.successRepos++;
                     job.results.processedRepos++;
