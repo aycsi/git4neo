@@ -77,9 +77,6 @@ export class RepositoryAnalyzer {
 
         } catch (error) {
             await this.githubService.cleanup();
-            if (!skipConnectionManagement) {
-                await this.neo4jService.disconnect();
-            }
             throw error;
         } finally {
             if (!skipConnectionManagement) {
