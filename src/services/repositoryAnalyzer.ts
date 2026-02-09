@@ -23,7 +23,7 @@ export class RepositoryAnalyzer {
     private dependencyAnalyzer = new DependencyAnalyzer();
     private complexityAnalyzer = new ComplexityAnalyzer();
 
-    async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<void> {
+    async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>, skipConnectionManagement: boolean = false): Promise<void> {
         const analysisConfig: AnalysisConfig = {
             maxFileSize: config?.maxFileSize || 1024 * 1024, // 1MB
             enableStreaming: config?.enableStreaming ?? true,
@@ -40,7 +40,9 @@ export class RepositoryAnalyzer {
 
         let repoPath: string | null = null;
         try {
-            await this.neo4jService.connect();
+            if (!skipConnectionManagement) {
+                await this.neo4jService.connect();
+            }
 
             progress?.report({ increment: 10, message: 'Fetching repository information...' });
             const repoInfo = await this.githubService.getRepositoryInfo(repoUrl);
@@ -75,10 +77,14 @@ export class RepositoryAnalyzer {
 
         } catch (error) {
             await this.githubService.cleanup();
-            await this.neo4jService.disconnect();
+            if (!skipConnectionManagement) {
+                await this.neo4jService.disconnect();
+            }
             throw error;
         } finally {
-            await this.neo4jService.disconnect();
+            if (!skipConnectionManagement) {
+                await this.neo4jService.disconnect();
+            }
         }
     }
 
