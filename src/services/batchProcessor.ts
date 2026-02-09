@@ -110,6 +110,9 @@ export class BatchProcessor {
                 const end = Math.min(start + batchSize, job.repositories.length);
                 const batch = job.repositories.slice(start, end);
 
+                const batchProgress = ((i + 1) / totalBatches) * 100;
+                job.progress = Math.min(batchProgress, 100);
+                
                 progress?.report({
                     increment: (100 / totalBatches),
                     message: `Processing batch ${i + 1}/${totalBatches} (${batch.length} repositories)`
