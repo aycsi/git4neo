@@ -88,9 +88,10 @@ export class BatchProcessor {
         job.status = 'running';
         job.startTime = new Date();
 
+        let connectionEstablished = false;
         try {
             await this.neo4jService.connect();
-            this.activeConnections++;
+            connectionEstablished = true;
 
             const batchSize = job.config.batchSize;
             const totalBatches = Math.ceil(job.repositories.length / batchSize);
@@ -137,9 +138,8 @@ export class BatchProcessor {
             throw error;
         } finally {
             this.isProcessing = false;
-            if (this.activeConnections > 0) {
+            if (connectionEstablished) {
                 await this.neo4jService.disconnect();
-                this.activeConnections--;
             }
         }
     }
