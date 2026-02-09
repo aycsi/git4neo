@@ -22,6 +22,15 @@ export class Neo4jService {
     private maxPoolSize = 5;
 
     async connect(): Promise<void> {
+        if (this.driver) {
+            try {
+                await this.driver.verifyConnectivity();
+                return;
+            } catch (error) {
+                await this.disconnect();
+            }
+        }
+
         const neo4jConfig = await Neo4jExtensionService.checkNeo4jExtension();
         
         if (neo4jConfig.isInstalled && neo4jConfig.isConnected && neo4jConfig.connectionDetails) {
