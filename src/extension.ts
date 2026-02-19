@@ -5,6 +5,7 @@ import { RepositoryAnalyzer } from './services/repositoryAnalyzer';
 import { BatchProcessor } from './services/batchProcessor';
 import { BatchManagerView } from './views/batchManager';
 import { InsightsPanel } from './views/insightsPanel';
+import { GraphView } from './views/graphView';
 
 export function activate(context: vscode.ExtensionContext) {
     const neo4jService = new Neo4jService();
@@ -99,13 +100,9 @@ export function activate(context: vscode.ExtensionContext) {
         batchManagerView.show();
     });
 
-    const viewGraph = vscode.commands.registerCommand('git4neo.viewGraph', async (uri?: vscode.Uri) => {
-        try {
-            const browserUri = await neo4jService.getNeo4jBrowserUri();
-            await vscode.env.openExternal(vscode.Uri.parse(browserUri));
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to open Neo4j browser: ${error instanceof Error ? error.message : String(error)}`);
-        }
+    const graphView = new GraphView(neo4jService);
+    const viewGraph = vscode.commands.registerCommand('git4neo.viewGraph', async () => {
+        await graphView.show();
     });
 
     const openBatchManager = vscode.commands.registerCommand('git4neo.openBatchManager', (uri?: vscode.Uri) => {
