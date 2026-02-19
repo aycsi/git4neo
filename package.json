@@ -27,7 +27,8 @@
     "onCommand:git4neo.connectMultipleRepositories",
     "onCommand:git4neo.viewGraph",
     "onCommand:git4neo.openBatchManager",
-    "onCommand:git4neo.runQuery"
+    "onCommand:git4neo.runQuery",
+    "onCommand:git4neo.setupWizard"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -55,6 +56,10 @@
       {
         "command": "git4neo.runQuery",
         "title": "Git4Neo: Run Cypher Query"
+      },
+      {
+        "command": "git4neo.setupWizard",
+        "title": "Git4Neo: Setup Wizard"
       }
     ],
     "configuration": {

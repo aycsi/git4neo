@@ -129,7 +129,54 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery);
+    const setupWizard = vscode.commands.registerCommand('git4neo.setupWizard', async () => {
+        const cfg = vscode.workspace.getConfiguration('git4neo');
+
+        const uri = await vscode.window.showInputBox({
+            prompt: '1/4 Neo4j URI',
+            value: cfg.get<string>('neo4jUri', 'bolt://localhost:7687'),
+            placeHolder: 'bolt://localhost:7687'
+        });
+        if (!uri) { return; }
+
+        const user = await vscode.window.showInputBox({
+            prompt: '2/4 Neo4j Username',
+            value: cfg.get<string>('neo4jUsername', 'neo4j'),
+            placeHolder: 'neo4j'
+        });
+        if (!user) { return; }
+
+        const pw = await vscode.window.showInputBox({
+            prompt: '3/4 Neo4j Password',
+            password: true,
+            placeHolder: 'Enter your Neo4j password'
+        });
+        if (pw === undefined) { return; }
+
+        const ghToken = await vscode.window.showInputBox({
+            prompt: '4/4 GitHub Token (optional, press Enter to skip)',
+            value: cfg.get<string>('githubToken', ''),
+            placeHolder: 'ghp_...'
+        });
+
+        await cfg.update('neo4jUri', uri, vscode.ConfigurationTarget.Global);
+        await cfg.update('neo4jUsername', user, vscode.ConfigurationTarget.Global);
+        await cfg.update('neo4jPassword', pw, vscode.ConfigurationTarget.Global);
+        if (ghToken) {
+            await cfg.update('githubToken', ghToken, vscode.ConfigurationTarget.Global);
+        }
+
+        try {
+            await neo4jService.connect();
+            vscode.window.showInformationMessage('Setup complete - Neo4j connection verified!');
+        } catch (error) {
+            vscode.window.showErrorMessage(`Settings saved but connection failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            updStatus();
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard);
 }
 
 export function deactivate() {}
