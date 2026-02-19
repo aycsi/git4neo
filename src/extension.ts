@@ -12,6 +12,22 @@ export function activate(context: vscode.ExtensionContext) {
     const batchProcessor = new BatchProcessor(neo4jService, githubService, repositoryAnalyzer);
     const batchManagerView = new BatchManagerView(batchProcessor);
 
+    const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBar.command = 'git4neo.testExtension';
+    context.subscriptions.push(statusBar);
+
+    const updStatus = () => {
+        if (neo4jService.connected) {
+            statusBar.text = '$(database) Neo4j: Connected';
+            statusBar.tooltip = 'Git4Neo - Connected to Neo4j';
+        } else {
+            statusBar.text = '$(circle-slash) Neo4j: Disconnected';
+            statusBar.tooltip = 'Git4Neo - Not connected. Click to check status.';
+        }
+        statusBar.show();
+    };
+    updStatus();
+
     const testExtension = vscode.commands.registerCommand('git4neo.testExtension', async () => {
         try {
             vscode.window.showInformationMessage('Git4Neo extension initialized');
@@ -70,6 +86,8 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage('Repository connected to Neo4j');
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to connect repository: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            updStatus();
         }
     });
 
@@ -105,6 +123,8 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(`Query returned ${results.length} results`);
             } catch (error) {
                 vscode.window.showErrorMessage(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+            } finally {
+                updStatus();
             }
         }
     });

@@ -21,6 +21,10 @@ export class Neo4jService {
     private sessionPool: Session[] = [];
     private maxPoolSize = 5;
 
+    get connected(): boolean {
+        return this.driver !== null;
+    }
+
     async connect(): Promise<void> {
         if (this.driver) {
             try {
