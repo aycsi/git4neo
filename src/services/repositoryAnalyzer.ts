@@ -218,43 +218,51 @@ export class RepositoryAnalyzer {
 
     private async createFileNodes(files: FileInfo[], repositoryId: string): Promise<void> {
         for (const file of files) {
-            await this.neo4jService.createFileNode({
-                path: file.path,
-                name: file.name,
-                extension: file.extension,
-                size: file.size,
-                repositoryId
-            });
+            try {
+                await this.neo4jService.createFileNode({
+                    path: file.path,
+                    name: file.name,
+                    extension: file.extension,
+                    size: file.size,
+                    repositoryId
+                });
+            } catch (error) {
+                vscode.window.showWarningMessage(`Failed to create node for ${file.path}: ${error instanceof Error ? error.message : String(error)}`);
+            }
         }
     }
 
     private async extractCodeElements(files: FileInfo[], repositoryId: string): Promise<void> {
         for (const file of files) {
-            if (!file.content) continue;
-            
-            const functions = this.githubService.extractFunctions(file.content, file.path);
-            const classes = this.githubService.extractClasses(file.content, file.path);
+            if (!file.content) { continue; }
 
-            for (const func of functions) {
-                await this.neo4jService.createFunctionNode({
-                    name: func.name,
-                    filePath: file.path,
-                    lineNumber: func.lineNumber,
-                    parameters: func.parameters,
-                    returnType: func.returnType,
-                    repositoryId
-                });
-            }
+            try {
+                const functions = this.githubService.extractFunctions(file.content, file.path);
+                const classes = this.githubService.extractClasses(file.content, file.path);
 
-            for (const cls of classes) {
-                await this.neo4jService.createClassNode({
-                    name: cls.name,
-                    filePath: file.path,
-                    lineNumber: cls.lineNumber,
-                    methods: cls.methods,
-                    properties: cls.properties,
-                    repositoryId
-                });
+                for (const func of functions) {
+                    await this.neo4jService.createFunctionNode({
+                        name: func.name,
+                        filePath: file.path,
+                        lineNumber: func.lineNumber,
+                        parameters: func.parameters,
+                        returnType: func.returnType,
+                        repositoryId
+                    });
+                }
+
+                for (const cls of classes) {
+                    await this.neo4jService.createClassNode({
+                        name: cls.name,
+                        filePath: file.path,
+                        lineNumber: cls.lineNumber,
+                        methods: cls.methods,
+                        properties: cls.properties,
+                        repositoryId
+                    });
+                }
+            } catch (error) {
+                vscode.window.showWarningMessage(`Failed to extract code from ${file.path}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     }
@@ -282,30 +290,34 @@ export class RepositoryAnalyzer {
         }
 
         for (const file of files) {
-            if (!file.content) continue;
-            
-            const imports = this.githubService.extractImports(file.content);
-            const functionCalls = this.githubService.extractFunctionCalls(file.content);
+            if (!file.content) { continue; }
 
-            for (const importPath of imports) {
-                const resolvedPath = this.resolveImportPath(importPath, file.path, fileMap);
-                if (resolvedPath) {
-                    await this.neo4jService.createImportRelationship(file.path, resolvedPath, repositoryId);
-                }
-            }
+            try {
+                const imports = this.githubService.extractImports(file.content);
+                const functionCalls = this.githubService.extractFunctionCalls(file.content);
 
-            for (const call of functionCalls) {
-                const targetFunction = this.findFunctionByName(call, functionMap);
-                if (targetFunction && file.content) {
-                    const sourceFunctions = this.githubService.extractFunctions(file.content, file.path);
-                                    for (const sourceFunc of sourceFunctions) {
-                    await this.neo4jService.createFunctionCallRelationship(
-                        `${sourceFunc.name}_${file.path}`,
-                        `${targetFunction.name}_${targetFunction.filePath}`,
-                        repositoryId
-                    );
+                for (const importPath of imports) {
+                    const resolvedPath = this.resolveImportPath(importPath, file.path, fileMap);
+                    if (resolvedPath) {
+                        await this.neo4jService.createImportRelationship(file.path, resolvedPath, repositoryId);
+                    }
                 }
+
+                for (const call of functionCalls) {
+                    const targetFunction = this.findFunctionByName(call, functionMap);
+                    if (targetFunction && file.content) {
+                        const sourceFunctions = this.githubService.extractFunctions(file.content, file.path);
+                        for (const sourceFunc of sourceFunctions) {
+                            await this.neo4jService.createFunctionCallRelationship(
+                                `${sourceFunc.name}_${file.path}`,
+                                `${targetFunction.name}_${targetFunction.filePath}`,
+                                repositoryId
+                            );
+                        }
+                    }
                 }
+            } catch (error) {
+                vscode.window.showWarningMessage(`Failed to create relationships for ${file.path}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     }
