@@ -36,6 +36,23 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "git4neo",
+          "title": "Git4Neo",
+          "icon": "icon.png"
+        }
+      ]
+    },
+    "views": {
+      "git4neo": [
+        {
+          "id": "git4neo.insights",
+          "name": "Insights"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "git4neo.testExtension",
@@ -64,6 +81,15 @@
       {
         "command": "git4neo.setupWizard",
         "title": "Git4Neo: Setup Wizard"
+      },
+      {
+        "command": "git4neo.refreshInsights",
+        "title": "Git4Neo: Refresh Insights",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "git4neo.selectRepo",
+        "title": "Git4Neo: Select Repository"
       }
     ],
     "configuration": {
@@ -91,6 +117,18 @@
       }
     },
     "menus": {
+      "view/title": [
+        {
+          "command": "git4neo.refreshInsights",
+          "when": "view == git4neo.insights",
+          "group": "navigation"
+        },
+        {
+          "command": "git4neo.selectRepo",
+          "when": "view == git4neo.insights",
+          "group": "navigation"
+        }
+      ],
       "explorer/context": [
         {
           "command": "git4neo.connectRepository",

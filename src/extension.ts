@@ -4,6 +4,7 @@ import { GitHubService } from './services/githubService';
 import { RepositoryAnalyzer } from './services/repositoryAnalyzer';
 import { BatchProcessor } from './services/batchProcessor';
 import { BatchManagerView } from './views/batchManager';
+import { InsightsPanel } from './views/insightsPanel';
 
 export function activate(context: vscode.ExtensionContext) {
     const neo4jService = new Neo4jService();
@@ -11,6 +12,9 @@ export function activate(context: vscode.ExtensionContext) {
     const repositoryAnalyzer = new RepositoryAnalyzer(neo4jService, githubService);
     const batchProcessor = new BatchProcessor(neo4jService, githubService, repositoryAnalyzer);
     const batchManagerView = new BatchManagerView(batchProcessor);
+    const insightsPanel = new InsightsPanel(neo4jService);
+
+    vscode.window.registerTreeDataProvider('git4neo.insights', insightsPanel);
 
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBar.command = 'git4neo.testExtension';
@@ -176,7 +180,33 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard);
+    const refreshInsights = vscode.commands.registerCommand('git4neo.refreshInsights', () => {
+        insightsPanel.refresh();
+    });
+
+    const selectRepo = vscode.commands.registerCommand('git4neo.selectRepo', async () => {
+        try {
+            await neo4jService.connect();
+            const repos = await neo4jService.executeQuery('MATCH (r:Repository) RETURN r.fullName as name ORDER BY r.fullName');
+            if (repos.length === 0) {
+                vscode.window.showInformationMessage('No repositories found. Connect a repository first.');
+                return;
+            }
+            const pick = await vscode.window.showQuickPick(
+                repos.map((r: any) => r.name),
+                { placeHolder: 'Select a repository' }
+            );
+            if (pick) {
+                insightsPanel.setRepo(pick);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to list repositories: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            updStatus();
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo);
 }
 
 export function deactivate() {}
