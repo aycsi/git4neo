@@ -470,7 +470,7 @@ export class RepositoryAnalyzer {
     }
 
     private async analyzeDependencies(repoPath: string, repositoryId: string): Promise<void> {
-        const dependencies = await this.dependencyAnalyzer.analyzePackageJson(repoPath);
+        const dependencies = await this.dependencyAnalyzer.analyzeDeps(repoPath);
         
         for (const dependency of dependencies) {
             await this.neo4jService.createDependencyNode({
