@@ -206,7 +206,26 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo);
+    const crossRepoAnalysis = vscode.commands.registerCommand('git4neo.crossRepoAnalysis', async () => {
+        try {
+            const result = await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Running cross-repo analysis...',
+                cancellable: false
+            }, async (progress) => {
+                return await repositoryAnalyzer.analyzeCrossRepo(progress);
+            });
+            vscode.window.showInformationMessage(
+                `Cross-repo analysis complete: ${result.deps} shared deps, ${result.contribs} shared contributors, ${result.langs} shared languages`
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Cross-repo analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            updStatus();
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo, crossRepoAnalysis);
 }
 
 export function deactivate() {}
