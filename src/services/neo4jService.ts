@@ -942,4 +942,59 @@ export class Neo4jService {
             this.releaseSession(session);
         }
     }
+
+    async linkSharedDeps(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:HAS_DEPENDENCY]->(d1:Dependency)
+                MATCH (r2:Repository)-[:HAS_DEPENDENCY]->(d2:Dependency)
+                WHERE r1.fullName < r2.fullName AND d1.name = d2.name
+                MERGE (r1)-[s:SHARES_DEPENDENCY {dependency: d1.name}]->(r2)
+                SET s.versions = [d1.version, d2.version], s.updatedAt = datetime()
+                RETURN count(s) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async linkContribOverlap(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:HAS_CONTRIBUTOR]->(c1:Contributor)
+                MATCH (r2:Repository)-[:HAS_CONTRIBUTOR]->(c2:Contributor)
+                WHERE r1.fullName < r2.fullName AND c1.email = c2.email
+                MERGE (r1)-[o:SHARED_CONTRIBUTOR {email: c1.email}]->(r2)
+                SET o.name = c1.name, o.updatedAt = datetime()
+                RETURN count(o) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async linkLangOverlap(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:CONTAINS]->(f1:File)
+                MATCH (r2:Repository)-[:CONTAINS]->(f2:File)
+                WHERE r1.fullName < r2.fullName AND f1.extension = f2.extension
+                WITH r1, r2, f1.extension as ext, count(*) as fileCount
+                MERGE (r1)-[l:SHARED_LANGUAGE {extension: ext}]->(r2)
+                SET l.fileCount = fileCount, l.updatedAt = datetime()
+                RETURN count(l) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
+        } finally {
+            this.releaseSession(session);
+        }
+    }
 }

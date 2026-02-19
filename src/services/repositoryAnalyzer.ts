@@ -353,28 +353,20 @@ export class RepositoryAnalyzer {
         return null;
     }
 
-    async analyzeMultipleRepositories(repoUrls: string[]): Promise<void> {
-        const repositories: RepositoryInfo[] = [];
+    async analyzeCrossRepo(progress?: vscode.Progress<{ increment?: number; message?: string }>): Promise<{ deps: number; contribs: number; langs: number }> {
+        await this.neo4jService.connect();
 
-        for (const repoUrl of repoUrls) {
-            const repoInfo = await this.githubService.getRepositoryInfo(repoUrl);
-            repositories.push(repoInfo);
-        }
+        progress?.report({ increment: 10, message: 'Linking shared dependencies...' });
+        const deps = await this.neo4jService.linkSharedDeps();
 
-        for (let i = 0; i < repositories.length; i++) {
-            for (let j = i + 1; j < repositories.length; j++) {
-                const similarity = this.githubService.calculateSimilarity(
-                    repositories[i].fullName,
-                    repositories[j].fullName
-                );
-                
-                await this.neo4jService.createSimilarityRelationship(
-                    repositories[i].fullName,
-                    repositories[j].fullName,
-                    similarity
-                );
-            }
-        }
+        progress?.report({ increment: 40, message: 'Linking contributor overlap...' });
+        const contribs = await this.neo4jService.linkContribOverlap();
+
+        progress?.report({ increment: 70, message: 'Linking shared languages...' });
+        const langs = await this.neo4jService.linkLangOverlap();
+
+        progress?.report({ increment: 100, message: 'Cross-repo analysis complete' });
+        return { deps, contribs, langs };
     }
 
     async getRepositoryStatistics(repositoryId: string): Promise<any> {
