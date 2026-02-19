@@ -127,7 +127,56 @@
           "when": "true"
         }
       ]
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "git4neo.getStarted",
+        "title": "Get Started with Git4Neo",
+        "description": "Turn your Git repositories into a Neo4j knowledge graph",
+        "steps": [
+          {
+            "id": "setupNeo4j",
+            "title": "Connect to Neo4j",
+            "description": "Run the setup wizard to configure your Neo4j connection.\n\n[Run Setup Wizard](command:git4neo.setupWizard)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "connectRepo",
+            "title": "Analyze Your First Repository",
+            "description": "Connect a GitHub repository to Neo4j for graph-based analysis.\n\n[Connect Repository](command:git4neo.connectRepository)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "viewGraph",
+            "title": "Explore the Graph",
+            "description": "Open Neo4j Browser to visualize your repository data as a graph.\n\n[View Graph](command:git4neo.viewGraph)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "runQuery",
+            "title": "Run a Cypher Query",
+            "description": "Query your repository graph directly with Cypher.\n\n[Run Query](command:git4neo.runQuery)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "batchAnalysis",
+            "title": "Analyze Multiple Repositories",
+            "description": "Use the Batch Manager to process many repos at once.\n\n[Open Batch Manager](command:git4neo.openBatchManager)",
+            "media": {
+              "markdown": ""
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
