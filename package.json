@@ -1,25 +1,29 @@
 {
   "name": "git4neo",
   "displayName": "Git4Neo",
-  "description": "A comprehensive tool to get repository data towards Neo4j",
-  "version": "0.0.7",
+  "description": "Analyze Git repositories as a Neo4j knowledge graph",
+  "version": "0.0.9",
   "publisher": "aycsi",
   "icon": "icon.png",
   "keywords": [
     "neo4j",
     "git",
-    "repository",
     "graph",
-    "database",
-    "github",
-    "data-science"
+    "analytics",
+    "code-analysis",
+    "repository",
+    "visualization",
+    "contributors",
+    "dependencies",
+    "github"
   ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Data Science",
-    "Other"
+    "Visualization",
+    "SCM Providers"
   ],
   "activationEvents": [
     "onCommand:git4neo.testExtension",
