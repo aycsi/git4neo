@@ -21,7 +21,20 @@ export class Neo4jService {
     private sessionPool: Session[] = [];
     private maxPoolSize = 5;
 
+    get connected(): boolean {
+        return this.driver !== null;
+    }
+
     async connect(): Promise<void> {
+        if (this.driver) {
+            try {
+                await this.driver.verifyConnectivity();
+                return;
+            } catch (error) {
+                await this.disconnect();
+            }
+        }
+
         const neo4jConfig = await Neo4jExtensionService.checkNeo4jExtension();
         
         if (neo4jConfig.isInstalled && neo4jConfig.isConnected && neo4jConfig.connectionDetails) {
@@ -33,6 +46,7 @@ export class Neo4jService {
                 await this.driver.verifyConnectivity();
                 return;
             } catch (error) {
+                vscode.window.showWarningMessage(`Neo4j extension connection failed, falling back to settings: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
 
@@ -72,9 +86,9 @@ export class Neo4jService {
     private async getPasswordFromNeo4jExtension(): Promise<string> {
         try {
             const config = vscode.workspace.getConfiguration('neo4j');
-            return config.get<string>('password') || 'password';
+            return config.get<string>('password') || '';
         } catch (error) {
-            return 'password';
+            return '';
         }
     }
 
@@ -507,41 +521,118 @@ export class Neo4jService {
             throw new Error('Not connected to Neo4j');
         }
 
+        const grouped: Record<string, any[]> = {};
+        for (const node of nodes) {
+            if (!grouped[node.type]) {
+                grouped[node.type] = [];
+            }
+            grouped[node.type].push(node);
+        }
+
+        const queryMap: Record<string, string> = {
+            repository: `
+                UNWIND $batch AS item
+                MERGE (r:Repository {fullName: item.fullName})
+                SET r.name = item.name, r.description = item.description,
+                    r.language = item.language, r.stars = item.stars,
+                    r.forks = item.forks, r.url = item.url, r.createdAt = datetime()
+            `,
+            file: `
+                UNWIND $batch AS item
+                MATCH (r:Repository {fullName: item.repositoryId})
+                MERGE (f:File {path: item.path, repositoryId: item.repositoryId})
+                SET f.name = item.name, f.extension = item.extension,
+                    f.size = item.size, f.createdAt = datetime()
+                MERGE (r)-[:CONTAINS]->(f)
+            `,
+            function: `
+                UNWIND $batch AS item
+                MATCH (f:File {path: item.filePath, repositoryId: item.repositoryId})
+                MERGE (func:Function {name: item.name, filePath: item.filePath, repositoryId: item.repositoryId})
+                SET func.lineNumber = item.lineNumber, func.parameters = item.parameters,
+                    func.returnType = item.returnType, func.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(func)
+            `,
+            class: `
+                UNWIND $batch AS item
+                MATCH (f:File {path: item.filePath, repositoryId: item.repositoryId})
+                MERGE (c:Class {name: item.name, filePath: item.filePath, repositoryId: item.repositoryId})
+                SET c.lineNumber = item.lineNumber, c.methods = item.methods,
+                    c.properties = item.properties, c.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(c)
+            `,
+            hook: `
+                UNWIND $batch AS item
+                MATCH (f:File {path: item.filePath, repositoryId: item.repositoryId})
+                MERGE (h:Hook {name: item.name, filePath: item.filePath, repositoryId: item.repositoryId})
+                SET h.lineNumber = item.lineNumber, h.type = item.hookType,
+                    h.dependencies = item.dependencies, h.returnType = item.returnType, h.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(h)
+            `,
+            decorator: `
+                UNWIND $batch AS item
+                MATCH (f:File {path: item.filePath, repositoryId: item.repositoryId})
+                MERGE (d:Decorator {name: item.name, filePath: item.filePath, repositoryId: item.repositoryId})
+                SET d.lineNumber = item.lineNumber, d.target = item.target,
+                    d.arguments = item.arguments, d.createdAt = datetime()
+                MERGE (f)-[:DEFINES]->(d)
+            `,
+            commit: `
+                UNWIND $batch AS item
+                MATCH (r:Repository {fullName: item.repositoryId})
+                MERGE (c:Commit {hash: item.hash, repositoryId: item.repositoryId})
+                SET c.message = item.message, c.author = item.author, c.email = item.email,
+                    c.date = datetime(item.date), c.insertions = item.insertions,
+                    c.deletions = item.deletions, c.createdAt = datetime()
+                MERGE (r)-[:HAS_COMMIT]->(c)
+            `,
+            branch: `
+                UNWIND $batch AS item
+                MATCH (r:Repository {fullName: item.repositoryId})
+                MERGE (b:Branch {name: item.name, repositoryId: item.repositoryId})
+                SET b.isCurrent = item.isCurrent, b.lastCommit = item.lastCommit,
+                    b.commitCount = item.commitCount, b.createdAt = datetime()
+                MERGE (r)-[:HAS_BRANCH]->(b)
+            `,
+            contributor: `
+                UNWIND $batch AS item
+                MATCH (r:Repository {fullName: item.repositoryId})
+                MERGE (c:Contributor {email: item.email, repositoryId: item.repositoryId})
+                SET c.name = item.name, c.commits = item.commits,
+                    c.insertions = item.insertions, c.deletions = item.deletions,
+                    c.firstCommit = datetime(item.firstCommit), c.lastCommit = datetime(item.lastCommit),
+                    c.createdAt = datetime()
+                MERGE (r)-[:HAS_CONTRIBUTOR]->(c)
+            `,
+            dependency: `
+                UNWIND $batch AS item
+                MATCH (r:Repository {fullName: item.repositoryId})
+                MERGE (d:Dependency {name: item.name, repositoryId: item.repositoryId})
+                SET d.version = item.version, d.type = item.depType, d.createdAt = datetime()
+                MERGE (r)-[:HAS_DEPENDENCY]->(d)
+            `,
+            complexity: `
+                UNWIND $batch AS item
+                MATCH (f:File {path: item.filePath, repositoryId: item.repositoryId})
+                MERGE (c:Complexity {filePath: item.filePath, repositoryId: item.repositoryId})
+                SET c.cyclomaticComplexity = item.cyclomaticComplexity,
+                    c.linesOfCode = item.linesOfCode, c.maintainabilityIndex = item.maintainabilityIndex,
+                    c.createdAt = datetime()
+                MERGE (f)-[:HAS_COMPLEXITY]->(c)
+            `
+        };
+
         const session = this.getSession();
         try {
             const batchSize = 100;
-            for (let i = 0; i < nodes.length; i += batchSize) {
-                const batch = nodes.slice(i, i + batchSize);
-                const queries = batch.map(node => {
-                    switch (node.type) {
-                        case 'repository':
-                            return `
-                                MERGE (r:Repository {fullName: $fullName})
-                                SET r.name = $name,
-                                    r.description = $description,
-                                    r.language = $language,
-                                    r.stars = $stars,
-                                    r.forks = $forks,
-                                    r.url = $url,
-                                    r.createdAt = datetime()
-                            `;
-                        case 'file':
-                            return `
-                                MATCH (r:Repository {fullName: $repositoryId})
-                                MERGE (f:File {path: $path, repositoryId: $repositoryId})
-                                SET f.name = $name,
-                                    f.extension = $extension,
-                                    f.size = $size,
-                                    f.createdAt = datetime()
-                                MERGE (r)-[:CONTAINS]->(f)
-                            `;
-                        default:
-                            return '';
-                    }
-                }).filter(q => q);
-
-                if (queries.length > 0) {
-                    await session.run(`UNWIND $batch AS item ${queries.join(' ')}`, { batch });
+            for (const [type, items] of Object.entries(grouped)) {
+                const query = queryMap[type];
+                if (!query) {
+                    vscode.window.showWarningMessage(`Unknown batch node type: ${type}`);
+                    continue;
+                }
+                for (let i = 0; i < items.length; i += batchSize) {
+                    await session.run(query, { batch: items.slice(i, i + batchSize) });
                 }
             }
         } finally {
@@ -847,6 +938,61 @@ export class Neo4jService {
         try {
             const result = await session.run(query, params);
             return result.records.map(record => record.toObject());
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async linkSharedDeps(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:HAS_DEPENDENCY]->(d1:Dependency)
+                MATCH (r2:Repository)-[:HAS_DEPENDENCY]->(d2:Dependency)
+                WHERE r1.fullName < r2.fullName AND d1.name = d2.name
+                MERGE (r1)-[s:SHARES_DEPENDENCY {dependency: d1.name}]->(r2)
+                SET s.versions = [d1.version, d2.version], s.updatedAt = datetime()
+                RETURN count(s) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async linkContribOverlap(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:HAS_CONTRIBUTOR]->(c1:Contributor)
+                MATCH (r2:Repository)-[:HAS_CONTRIBUTOR]->(c2:Contributor)
+                WHERE r1.fullName < r2.fullName AND c1.email = c2.email
+                MERGE (r1)-[o:SHARED_CONTRIBUTOR {email: c1.email}]->(r2)
+                SET o.name = c1.name, o.updatedAt = datetime()
+                RETURN count(o) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
+        } finally {
+            this.releaseSession(session);
+        }
+    }
+
+    async linkLangOverlap(): Promise<number> {
+        if (!this.driver) { throw new Error('Not connected to Neo4j'); }
+        const session = this.getSession();
+        try {
+            const result = await session.run(`
+                MATCH (r1:Repository)-[:CONTAINS]->(f1:File)
+                MATCH (r2:Repository)-[:CONTAINS]->(f2:File)
+                WHERE r1.fullName < r2.fullName AND f1.extension = f2.extension
+                WITH r1, r2, f1.extension as ext, count(*) as fileCount
+                MERGE (r1)-[l:SHARED_LANGUAGE {extension: ext}]->(r2)
+                SET l.fileCount = fileCount, l.updatedAt = datetime()
+                RETURN count(l) as cnt
+            `);
+            return result.records[0]?.get('cnt')?.toNumber() || 0;
         } finally {
             this.releaseSession(session);
         }

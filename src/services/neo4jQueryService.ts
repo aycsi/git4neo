@@ -97,6 +97,24 @@ export class Neo4jQueryService {
                    w.focus as focus,
                    count(c) as frequency
             ORDER BY frequency DESC
+        `,
+
+        CROSS_SHARED_DEPS: `
+            MATCH (r1:Repository)-[s:SHARES_DEPENDENCY]->(r2:Repository)
+            RETURN r1.fullName as repo1, r2.fullName as repo2, s.dependency as dependency, s.versions as versions
+            ORDER BY s.dependency
+        `,
+
+        CROSS_SHARED_CONTRIBS: `
+            MATCH (r1:Repository)-[o:SHARED_CONTRIBUTOR]->(r2:Repository)
+            RETURN r1.fullName as repo1, r2.fullName as repo2, o.name as contributor, o.email as email
+            ORDER BY o.name
+        `,
+
+        CROSS_SHARED_LANGS: `
+            MATCH (r1:Repository)-[l:SHARED_LANGUAGE]->(r2:Repository)
+            RETURN r1.fullName as repo1, r2.fullName as repo2, l.extension as extension, l.fileCount as fileCount
+            ORDER BY l.fileCount DESC
         `
     };
 }

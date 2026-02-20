@@ -137,8 +137,11 @@ export class GitHubService {
         if (this.tempDir && fs.existsSync(this.tempDir)) {
             try {
                 fs.rmSync(this.tempDir, { recursive: true, force: true });
-                    } catch (error) {
-        }
+            } catch (error) {
+                vscode.window.showWarningMessage(`Failed to clean up temp directory ${this.tempDir}: ${error instanceof Error ? error.message : String(error)}`);
+            } finally {
+                this.tempDir = '';
+            }
         }
     }
 
@@ -586,10 +589,13 @@ export class GitHubService {
     calculateSimilarity(repo1: string, repo2: string): number {
         const commonExtensions = this.getCommonExtensions(repo1, repo2);
         const commonLanguages = this.getCommonLanguages(repo1, repo2);
-        
-        const extensionScore = commonExtensions.length / Math.max(this.getExtensions(repo1).length, this.getExtensions(repo2).length);
-        const languageScore = commonLanguages.length / Math.max(this.getLanguages(repo1).length, this.getLanguages(repo2).length);
-        
+
+        const maxExt = Math.max(this.getExtensions(repo1).length, this.getExtensions(repo2).length);
+        const maxLang = Math.max(this.getLanguages(repo1).length, this.getLanguages(repo2).length);
+
+        const extensionScore = maxExt > 0 ? commonExtensions.length / maxExt : 0;
+        const languageScore = maxLang > 0 ? commonLanguages.length / maxLang : 0;
+
         return (extensionScore + languageScore) / 2;
     }
 
@@ -606,11 +612,41 @@ export class GitHubService {
     }
 
     private getExtensions(repo: string): string[] {
-        return [];
+        const exts = new Set<string>();
+        const walk = (dir: string) => {
+            try {
+                for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                    if (['node_modules', '.git', 'vendor', 'target', 'dist', 'build'].includes(entry.name)) { continue; }
+                    const full = path.join(dir, entry.name);
+                    if (entry.isDirectory()) { walk(full); }
+                    else {
+                        const ext = path.extname(entry.name).toLowerCase();
+                        if (ext) { exts.add(ext); }
+                    }
+                }
+            } catch (_) {}
+        };
+        walk(repo);
+        return Array.from(exts);
     }
 
     private getLanguages(repo: string): string[] {
-        return [];
+        const extLangMap: Record<string, string> = {
+            '.js': 'JavaScript', '.jsx': 'JavaScript', '.ts': 'TypeScript', '.tsx': 'TypeScript',
+            '.py': 'Python', '.java': 'Java', '.kt': 'Kotlin', '.cs': 'C#',
+            '.cpp': 'C++', '.c': 'C', '.go': 'Go', '.rs': 'Rust',
+            '.rb': 'Ruby', '.php': 'PHP', '.swift': 'Swift', '.dart': 'Dart',
+            '.scala': 'Scala', '.r': 'R', '.m': 'Objective-C', '.lua': 'Lua',
+            '.hs': 'Haskell', '.ex': 'Elixir', '.erl': 'Erlang', '.clj': 'Clojure',
+            '.sh': 'Shell', '.ps1': 'PowerShell', '.html': 'HTML', '.css': 'CSS',
+            '.scss': 'SCSS', '.sql': 'SQL', '.vue': 'Vue', '.svelte': 'Svelte',
+        };
+        const langs = new Set<string>();
+        for (const ext of this.getExtensions(repo)) {
+            const lang = extLangMap[ext];
+            if (lang) { langs.add(lang); }
+        }
+        return Array.from(langs);
     }
 
     extractHooks(content: string, filePath: string): HookInfo[] {

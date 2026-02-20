@@ -201,15 +201,26 @@ export class BatchManagerView {
                 <script>
                     const vscode = acquireVsCodeApi();
                     
+                    const ghUrlRe = /^https:\\/\\/github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/?$/;
+
                     function createJob() {
-                        const name = document.getElementById('jobName').value;
+                        const name = document.getElementById('jobName').value.trim();
                         const repos = document.getElementById('repoList').value
                             .split('\\n')
                             .map(url => url.trim())
                             .filter(url => url.length > 0);
                         
-                        if (!name || repos.length === 0) {
-                            alert('Please enter a job name and at least one repository URL');
+                        if (!name) {
+                            alert('Please enter a job name');
+                            return;
+                        }
+                        if (repos.length === 0) {
+                            alert('Please enter at least one repository URL');
+                            return;
+                        }
+                        const invalid = repos.filter(u => !ghUrlRe.test(u));
+                        if (invalid.length > 0) {
+                            alert('Invalid GitHub URLs:\\n' + invalid.join('\\n'));
                             return;
                         }
                         
@@ -346,16 +357,34 @@ export class BatchManagerView {
                     });
                     
             
+                    let pollTimer = null;
+
+                    function startPolling() {
+                        if (pollTimer) return;
+                        pollTimer = setInterval(() => {
+                            vscode.postMessage({ command: 'getJobs' });
+                        }, 2000);
+                    }
+
+                    function stopPolling() {
+                        if (pollTimer) {
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+                        }
+                    }
+
                     window.addEventListener('message', event => {
                         const message = event.data;
                         switch (message.command) {
                             case 'updateJobs':
                                 updateJobList(message.jobs);
+                                const hasRunning = message.jobs.some(j => j.status === 'running');
+                                if (hasRunning) { startPolling(); }
+                                else { stopPolling(); }
                                 break;
                         }
                     });
                     
-            
                     vscode.postMessage({ command: 'getJobs' });
                 </script>
             </body>
@@ -419,16 +448,25 @@ export class BatchManagerView {
             return;
         }
 
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `Processing batch job: ${job.name}`,
-            cancellable: false
-        }, async (progress) => {
-            await this.batchProcessor.processBatch(jobId, progress);
-        });
-
         this.updateJobList();
-        vscode.window.showInformationMessage(`Batch job "${job.name}" finished`);
+
+        const pollId = setInterval(() => this.updateJobList(), 2000);
+
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Processing batch job: ${job.name}`,
+                cancellable: false
+            }, async (progress) => {
+                await this.batchProcessor.processBatch(jobId, progress);
+            });
+            vscode.window.showInformationMessage(`Batch job "${job.name}" finished`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Batch job failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            clearInterval(pollId);
+            this.updateJobList();
+        }
     }
 
     private async exportJob(jobId: string): Promise<void> {

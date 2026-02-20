@@ -1,25 +1,29 @@
 {
   "name": "git4neo",
   "displayName": "Git4Neo",
-  "description": "A comprehensive tool to get repository data towards Neo4j",
-  "version": "0.0.7",
+  "description": "Analyze Git repositories as a Neo4j knowledge graph",
+  "version": "0.1.0",
   "publisher": "aycsi",
   "icon": "icon.png",
   "keywords": [
     "neo4j",
     "git",
-    "repository",
     "graph",
-    "database",
-    "github",
-    "data-science"
+    "analytics",
+    "code-analysis",
+    "repository",
+    "visualization",
+    "contributors",
+    "dependencies",
+    "github"
   ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Data Science",
-    "Other"
+    "Visualization",
+    "SCM Providers"
   ],
   "activationEvents": [
     "onCommand:git4neo.testExtension",
@@ -27,10 +31,30 @@
     "onCommand:git4neo.connectMultipleRepositories",
     "onCommand:git4neo.viewGraph",
     "onCommand:git4neo.openBatchManager",
-    "onCommand:git4neo.runQuery"
+    "onCommand:git4neo.runQuery",
+    "onCommand:git4neo.setupWizard",
+    "onCommand:git4neo.crossRepoAnalysis",
+    "onCommand:git4neo.exportInsights"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "git4neo",
+          "title": "Git4Neo",
+          "icon": "icon.png"
+        }
+      ]
+    },
+    "views": {
+      "git4neo": [
+        {
+          "id": "git4neo.insights",
+          "name": "Insights"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "git4neo.testExtension",
@@ -55,6 +79,27 @@
       {
         "command": "git4neo.runQuery",
         "title": "Git4Neo: Run Cypher Query"
+      },
+      {
+        "command": "git4neo.setupWizard",
+        "title": "Git4Neo: Setup Wizard"
+      },
+      {
+        "command": "git4neo.refreshInsights",
+        "title": "Git4Neo: Refresh Insights",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "git4neo.selectRepo",
+        "title": "Git4Neo: Select Repository"
+      },
+      {
+        "command": "git4neo.crossRepoAnalysis",
+        "title": "Git4Neo: Cross-Repo Analysis"
+      },
+      {
+        "command": "git4neo.exportInsights",
+        "title": "Git4Neo: Export Insights"
       }
     ],
     "configuration": {
@@ -82,6 +127,18 @@
       }
     },
     "menus": {
+      "view/title": [
+        {
+          "command": "git4neo.refreshInsights",
+          "when": "view == git4neo.insights",
+          "group": "navigation"
+        },
+        {
+          "command": "git4neo.selectRepo",
+          "when": "view == git4neo.insights",
+          "group": "navigation"
+        }
+      ],
       "explorer/context": [
         {
           "command": "git4neo.connectRepository",
@@ -122,13 +179,62 @@
           "when": "true"
         }
       ]
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "git4neo.getStarted",
+        "title": "Get Started with Git4Neo",
+        "description": "Turn your Git repositories into a Neo4j knowledge graph",
+        "steps": [
+          {
+            "id": "setupNeo4j",
+            "title": "Connect to Neo4j",
+            "description": "Run the setup wizard to configure your Neo4j connection.\n\n[Run Setup Wizard](command:git4neo.setupWizard)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "connectRepo",
+            "title": "Analyze Your First Repository",
+            "description": "Connect a GitHub repository to Neo4j for graph-based analysis.\n\n[Connect Repository](command:git4neo.connectRepository)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "viewGraph",
+            "title": "Explore the Graph",
+            "description": "Open Neo4j Browser to visualize your repository data as a graph.\n\n[View Graph](command:git4neo.viewGraph)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "runQuery",
+            "title": "Run a Cypher Query",
+            "description": "Query your repository graph directly with Cypher.\n\n[Run Query](command:git4neo.runQuery)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "batchAnalysis",
+            "title": "Analyze Multiple Repositories",
+            "description": "Use the Batch Manager to process many repos at once.\n\n[Open Batch Manager](command:git4neo.openBatchManager)",
+            "media": {
+              "markdown": ""
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "jest"
+    "test": "jest --passWithNoTests"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

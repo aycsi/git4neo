@@ -33,8 +33,6 @@ export interface BatchJob {
 export class BatchProcessor {
     private jobs: Map<string, BatchJob> = new Map();
     private isProcessing = false;
-    private activeConnections = 0;
-    private maxConnections = 10;
 
     constructor(
         private neo4jService: Neo4jService,
@@ -88,9 +86,10 @@ export class BatchProcessor {
         job.status = 'running';
         job.startTime = new Date();
 
+        let connectionEstablished = false;
         try {
             await this.neo4jService.connect();
-            this.activeConnections++;
+            connectionEstablished = true;
 
             const batchSize = job.config.batchSize;
             const totalBatches = Math.ceil(job.repositories.length / batchSize);
@@ -108,15 +107,18 @@ export class BatchProcessor {
                 }
 
                 const start = i * batchSize;
-                const end = Math.min(start + batchSize, job.repositories.length);
-                const batch = job.repositories.slice(start, end);
+                const end = Math.min(start + batchSize, currentJob.repositories.length);
+                const batch = currentJob.repositories.slice(start, end);
 
+                const batchProgress = ((i + 1) / totalBatches) * 100;
+                currentJob.progress = Math.min(batchProgress, 100);
+                
                 progress?.report({
                     increment: (100 / totalBatches),
                     message: `Processing batch ${i + 1}/${totalBatches} (${batch.length} repositories)`
                 });
 
-                await this.processBatchConcurrently(batch, job, progress);
+                await this.processBatchConcurrently(batch, currentJob, progress);
                 
                 // Check memory usage and pause if needed
                 if (this.isMemoryUsageHigh()) {
@@ -125,21 +127,24 @@ export class BatchProcessor {
                 }
             }
 
-            if (job.status === 'running') {
-                job.status = 'completed';
-                job.progress = 100;
-                job.endTime = new Date();
+            const finalJob = this.jobs.get(jobId);
+            if (finalJob && finalJob.status === 'running') {
+                finalJob.status = 'completed';
+                finalJob.progress = 100;
+                finalJob.endTime = new Date();
             }
 
         } catch (error) {
-            job.status = 'failed';
-            job.errors.push(error instanceof Error ? error.message : String(error));
+            const errorJob = this.jobs.get(jobId);
+            if (errorJob) {
+                errorJob.status = 'failed';
+                errorJob.errors.push(error instanceof Error ? error.message : String(error));
+            }
             throw error;
         } finally {
             this.isProcessing = false;
-            if (this.activeConnections > 0) {
+            if (connectionEstablished) {
                 await this.neo4jService.disconnect();
-                this.activeConnections--;
             }
         }
     }
@@ -156,7 +161,13 @@ export class BatchProcessor {
                 try {
                     progress?.report({ message: `Analyzing ${repoUrl}...` });
                     
-                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, job.config);
+                    const analysisConfig = {
+                        maxFileSize: job.config.maxFileSize,
+                        enableStreaming: job.config.enableStreaming,
+                        batchSize: job.config.batchSize
+                    };
+                    
+                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, analysisConfig, progress, true);
                     
                     job.results.successRepos++;
                     job.results.processedRepos++;
