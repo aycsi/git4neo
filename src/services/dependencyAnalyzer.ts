@@ -46,15 +46,14 @@ export class DependencyAnalyzer {
 
         try {
             const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-            return lines
-                .map(l => l.trim())
-                .filter(l => l && !l.startsWith('#') && !l.startsWith('-'))
-                .map(l => {
-                    const m = l.match(/^([a-zA-Z0-9_.-]+)\s*(?:[><=!~]+\s*(.+))?/);
-                    if (!m) { return null; }
-                    return { name: m[1], version: m[2]?.trim() || '*', type: 'dependency' as const };
-                })
-                .filter((d): d is DependencyInfo => d !== null);
+            const deps: DependencyInfo[] = [];
+            for (const raw of lines) {
+                const l = raw.trim();
+                if (!l || l.startsWith('#') || l.startsWith('-')) { continue; }
+                const m = l.match(/^([a-zA-Z0-9_.-]+)\s*(?:[><=!~]+\s*(.+))?/);
+                if (m) { deps.push({ name: m[1], version: m[2]?.trim() || '*', type: 'dependency' }); }
+            }
+            return deps;
         } catch { return []; }
     }
 
@@ -136,15 +135,14 @@ export class DependencyAnalyzer {
 
         try {
             const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-            return lines
-                .map(l => l.trim())
-                .filter(l => l.startsWith('gem '))
-                .map(l => {
-                    const m = l.match(/gem\s+['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/);
-                    if (!m) { return null; }
-                    return { name: m[1], version: m[2] || '*', type: 'dependency' as const };
-                })
-                .filter((d): d is DependencyInfo => d !== null);
+            const deps: DependencyInfo[] = [];
+            for (const raw of lines) {
+                const l = raw.trim();
+                if (!l.startsWith('gem ')) { continue; }
+                const m = l.match(/gem\s+['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/);
+                if (m) { deps.push({ name: m[1], version: m[2] || '*', type: 'dependency' }); }
+            }
+            return deps;
         } catch { return []; }
     }
 }
