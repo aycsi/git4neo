@@ -2,7 +2,7 @@
   "name": "git4neo",
   "displayName": "Git4Neo",
   "description": "Analyze Git repositories as a Neo4j knowledge graph",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "publisher": "aycsi",
   "icon": "icon.png",
   "keywords": [

@@ -8,6 +8,12 @@ import { InsightsPanel } from './views/insightsPanel';
 import { GraphView } from './views/graphView';
 
 export function activate(context: vscode.ExtensionContext) {
+    try { return doActivate(context); } catch (e) {
+        vscode.window.showErrorMessage(`Git4Neo activation failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
+function doActivate(context: vscode.ExtensionContext) {
     const neo4jService = new Neo4jService();
     const githubService = new GitHubService();
     const repositoryAnalyzer = new RepositoryAnalyzer(neo4jService, githubService);
