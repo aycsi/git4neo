@@ -1,6 +1,6 @@
-[![CI](https://github.com/aycsi/git4neo/actions/workflows/ci.yml/badge.svg)](https://github.com/aycsi/git4neo/actions/workflows/ci.yml)
-
 # Git4Neo
+
+[![CI](https://github.com/aycsi/git4neo/actions/workflows/ci.yml/badge.svg)](https://github.com/aycsi/git4neo/actions/workflows/ci.yml)
 
 Analyze Git repositories as a Neo4j knowledge graph. Connect one or many repos, then explore contributors, dependencies, code complexity, and cross-repo relationships through graph queries and built-in visualizations.
 
