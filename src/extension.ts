@@ -222,7 +222,69 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo, crossRepoAnalysis);
+    const exportInsights = vscode.commands.registerCommand('git4neo.exportInsights', async () => {
+        try {
+            await neo4jService.connect();
+            const repos = await neo4jService.executeQuery('MATCH (r:Repository) RETURN r.fullName as name ORDER BY r.fullName');
+            if (repos.length === 0) {
+                vscode.window.showInformationMessage('No repositories found.');
+                return;
+            }
+            const pick = await vscode.window.showQuickPick(
+                repos.map((r: any) => r.name),
+                { placeHolder: 'Select repository to export' }
+            );
+            if (!pick) { return; }
+
+            const fmt = await vscode.window.showQuickPick(['JSON', 'CSV'], { placeHolder: 'Export format' });
+            if (!fmt) { return; }
+
+            const p = { repositoryId: pick };
+            const { Neo4jQueryService } = await import('./services/neo4jQueryService');
+            const data: Record<string, any[]> = {};
+            data.hotspots = await neo4jService.executeQuery(Neo4jQueryService.QUERIES.HOTSPOTS, p);
+            data.contributors = await neo4jService.executeQuery(Neo4jQueryService.QUERIES.TOP_CONTRIBUTORS, p);
+            data.dependencies = await neo4jService.executeQuery(Neo4jQueryService.QUERIES.DEPENDENCY_GRAPH, p);
+            data.codeQuality = await neo4jService.executeQuery(Neo4jQueryService.QUERIES.CODE_QUALITY_SUMMARY, p);
+            data.recentCommits = await neo4jService.executeQuery(Neo4jQueryService.QUERIES.COMMIT_TRENDS, p);
+
+            let content: string;
+            let ext: string;
+            if (fmt === 'JSON') {
+                content = JSON.stringify({ repository: pick, exportedAt: new Date().toISOString(), ...data }, null, 2);
+                ext = 'json';
+            } else {
+                const sections: string[] = [];
+                for (const [section, rows] of Object.entries(data)) {
+                    if (rows.length === 0) { continue; }
+                    const keys = Object.keys(rows[0]);
+                    sections.push(`# ${section}`);
+                    sections.push(keys.join(','));
+                    for (const row of rows) {
+                        sections.push(keys.map(k => String(row[k] ?? '').replace(/,/g, ';')).join(','));
+                    }
+                    sections.push('');
+                }
+                content = sections.join('\n');
+                ext = 'csv';
+            }
+
+            const uri = await vscode.window.showSaveDialog({
+                filters: { [fmt]: [ext] },
+                defaultUri: vscode.Uri.file(`git4neo-export-${pick.replace('/', '-')}.${ext}`)
+            });
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
+                vscode.window.showInformationMessage(`Exported insights for ${pick}`);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            updStatus();
+        }
+    });
+
+    context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo, crossRepoAnalysis, exportInsights);
 }
 
 export function deactivate() {}

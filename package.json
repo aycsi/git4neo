@@ -33,7 +33,8 @@
     "onCommand:git4neo.openBatchManager",
     "onCommand:git4neo.runQuery",
     "onCommand:git4neo.setupWizard",
-    "onCommand:git4neo.crossRepoAnalysis"
+    "onCommand:git4neo.crossRepoAnalysis",
+    "onCommand:git4neo.exportInsights"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -95,6 +96,10 @@
       {
         "command": "git4neo.crossRepoAnalysis",
         "title": "Git4Neo: Cross-Repo Analysis"
+      },
+      {
+        "command": "git4neo.exportInsights",
+        "title": "Git4Neo: Export Insights"
       }
     ],
     "configuration": {
