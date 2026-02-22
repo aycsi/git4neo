@@ -33,7 +33,7 @@ export class GraphView {
                     WHERE n:Repository OR n:File OR n:Contributor OR n:Dependency
                     RETURN id(n) as id, labels(n)[0] as label, 
                            coalesce(n.name, n.fullName, n.path, n.email) as name
-                    LIMIT 200
+                    LIMIT 100
                 `);
                 const edges = await this.neo4j.executeQuery(`
                     MATCH (a)-[r]->(b)
@@ -69,7 +69,7 @@ export class GraphView {
                     MATCH (r:Repository {fullName: $repo})-[rel]-(n)
                     RETURN id(n) as id, labels(n)[0] as label,
                            coalesce(n.name, n.fullName, n.path, n.email) as name
-                    LIMIT 150
+                    LIMIT 100
                 `, { repo: msg.repo });
                 const repoNode = await this.neo4j.executeQuery(`
                     MATCH (r:Repository {fullName: $repo})
