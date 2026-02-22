@@ -40,7 +40,7 @@ export class GraphView {
                     WHERE (a:Repository OR a:File OR a:Contributor OR a:Dependency)
                       AND (b:Repository OR b:File OR b:Contributor OR b:Dependency)
                     RETURN id(a) as src, id(b) as tgt, type(r) as rel
-                    LIMIT 500
+                    LIMIT 400
                 `);
                 this.panel?.webview.postMessage({
                     command: 'graphData',
