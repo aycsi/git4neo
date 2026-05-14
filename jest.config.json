@@ -2,6 +2,9 @@
   "preset": "ts-jest",
   "testEnvironment": "node",
   "testMatch": ["**/test/**/*.test.ts"],
+  "moduleNameMapper": {
+    "^vscode$": "<rootDir>/test/mocks/vscode.ts"
+  },
   "collectCoverageFrom": [
     "src/**/*.ts",
     "!src/**/*.d.ts"

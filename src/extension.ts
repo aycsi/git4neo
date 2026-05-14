@@ -7,6 +7,8 @@ import { BatchManagerView } from './views/batchManager';
 import { InsightsPanel } from './views/insightsPanel';
 import { GraphView } from './views/graphView';
 
+let activeNeo4jService: Neo4jService | null = null;
+
 export function activate(context: vscode.ExtensionContext) {
     try { return doActivate(context); } catch (e) {
         vscode.window.showErrorMessage(`Git4Neo activation failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -15,6 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 function doActivate(context: vscode.ExtensionContext) {
     const neo4jService = new Neo4jService();
+    activeNeo4jService = neo4jService;
     const githubService = new GitHubService();
     const repositoryAnalyzer = new RepositoryAnalyzer(neo4jService, githubService);
     const batchProcessor = new BatchProcessor(neo4jService, githubService, repositoryAnalyzer);
@@ -68,6 +71,7 @@ function doActivate(context: vscode.ExtensionContext) {
                         repoUrl = remotes[0].refs.fetch.replace('.git', '');
                     }
                 } catch (error) {
+                    vscode.window.showWarningMessage(`Could not auto-detect remote URL: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         }
@@ -125,7 +129,6 @@ function doActivate(context: vscode.ExtensionContext) {
             try {
                 await neo4jService.connect();
                 const results = await neo4jService.executeQuery(query);
-                await neo4jService.disconnect();
                 
                 vscode.window.showInformationMessage(`Query returned ${results.length} results`);
             } catch (error) {
@@ -171,10 +174,14 @@ function doActivate(context: vscode.ExtensionContext) {
         await cfg.update('neo4jPassword', pw, vscode.ConfigurationTarget.Global);
         if (ghToken) {
             await cfg.update('githubToken', ghToken, vscode.ConfigurationTarget.Global);
+            githubService.setToken(ghToken);
         }
 
         try {
             await neo4jService.connect();
+            if (ghToken) {
+                await githubService.validateToken();
+            }
             vscode.window.showInformationMessage('Setup complete - Neo4j connection verified!');
         } catch (error) {
             vscode.window.showErrorMessage(`Settings saved but connection failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -293,4 +300,9 @@ function doActivate(context: vscode.ExtensionContext) {
     context.subscriptions.push(testExtension, connectRepository, connectMultipleRepositories, viewGraph, openBatchManager, runQuery, setupWizard, refreshInsights, selectRepo, crossRepoAnalysis, exportInsights);
 }
 
-export function deactivate() {}
+export async function deactivate() {
+    if (activeNeo4jService) {
+        await activeNeo4jService.disconnect();
+        activeNeo4jService = null;
+    }
+}

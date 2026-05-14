@@ -121,7 +121,7 @@ export class BatchProcessor {
                 await this.processBatchConcurrently(batch, currentJob, progress);
                 
                 // Check memory usage and pause if needed
-                if (this.isMemoryUsageHigh()) {
+                if (this.isMemoryUsageHigh(currentJob.config.memoryThreshold)) {
                     progress?.report({ message: 'High memory usage detected, pausing briefly...' });
                     await this.pauseForMemoryCleanup();
                 }
@@ -167,10 +167,13 @@ export class BatchProcessor {
                         batchSize: job.config.batchSize
                     };
                     
-                    await this.repositoryAnalyzer.analyzeRepository(repoUrl, analysisConfig, progress, true);
+                    const analysis = await this.repositoryAnalyzer.analyzeRepository(repoUrl, analysisConfig, progress, true);
                     
                     job.results.successRepos++;
                     job.results.processedRepos++;
+                    job.results.totalFiles += analysis.totalFiles;
+                    job.results.processedFiles += analysis.processedFiles;
+                    job.results.skippedFiles += analysis.skippedFiles;
                     
                     progress?.report({ message: `Finished ${repoUrl}` });
                     
@@ -278,11 +281,11 @@ export class BatchProcessor {
         });
     }
 
-    private isMemoryUsageHigh(): boolean {
+    private isMemoryUsageHigh(threshold: number = 0.8): boolean {
         const used = process.memoryUsage();
         const total = used.heapTotal;
         const usage = used.heapUsed / total;
-        return usage > 0.8; // 80% threshold
+        return usage > threshold;
     }
 
     private async pauseForMemoryCleanup(): Promise<void> {
