@@ -13,6 +13,14 @@ export interface AnalysisConfig {
     batchSize: number;
 }
 
+export interface AnalysisSummary {
+    totalFiles: number;
+    processedFiles: number;
+    skippedFiles: number;
+    commitCount: number;
+    contributorCount: number;
+}
+
 export class RepositoryAnalyzer {
     constructor(
         private neo4jService: Neo4jService,
@@ -23,7 +31,7 @@ export class RepositoryAnalyzer {
     private dependencyAnalyzer = new DependencyAnalyzer();
     private complexityAnalyzer = new ComplexityAnalyzer();
 
-    async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>, skipConnectionManagement: boolean = false): Promise<void> {
+    async analyzeRepository(repoUrl: string, config?: Partial<AnalysisConfig>, progress?: vscode.Progress<{ increment?: number; message?: string }>, skipConnectionManagement: boolean = false): Promise<AnalysisSummary> {
         const analysisConfig: AnalysisConfig = {
             maxFileSize: config?.maxFileSize || 1024 * 1024, // 1MB
             enableStreaming: config?.enableStreaming ?? true,
@@ -39,6 +47,15 @@ export class RepositoryAnalyzer {
         };
 
         let repoPath: string | null = null;
+        let fileSummary: Pick<AnalysisSummary, 'totalFiles' | 'processedFiles' | 'skippedFiles'> = {
+            totalFiles: 0,
+            processedFiles: 0,
+            skippedFiles: 0
+        };
+        let gitSummary: Pick<AnalysisSummary, 'commitCount' | 'contributorCount'> = {
+            commitCount: 0,
+            contributorCount: 0
+        };
         try {
             if (!skipConnectionManagement) {
                 await this.neo4jService.connect();
@@ -56,13 +73,13 @@ export class RepositoryAnalyzer {
             progress?.report({ increment: 40, message: 'Analyzing files...' });
             
             if (analysisConfig.enableStreaming) {
-                await this.analyzeRepositoryStreaming(repoPath!, repositoryId, streamingConfig, progress);
+                fileSummary = await this.analyzeRepositoryStreaming(repoPath!, repositoryId, streamingConfig, progress);
             } else {
-                await this.analyzeRepositoryBatch(repoPath!, repositoryId, streamingConfig, progress);
+                fileSummary = await this.analyzeRepositoryBatch(repoPath!, repositoryId, streamingConfig, progress);
             }
 
             progress?.report({ increment: 50, message: 'Analyzing git history...' });
-            await this.analyzeGitHistory(repoPath!, repositoryId);
+            gitSummary = await this.analyzeGitHistory(repoPath!, repositoryId);
 
             progress?.report({ increment: 60, message: 'Analyzing dependencies...' });
             await this.analyzeDependencies(repoPath!, repositoryId);
@@ -74,14 +91,14 @@ export class RepositoryAnalyzer {
             await this.githubService.cleanup();
 
             progress?.report({ increment: 100, message: 'Analysis finished' });
+            return {
+                ...fileSummary,
+                ...gitSummary
+            };
 
         } catch (error) {
             await this.githubService.cleanup();
             throw error;
-        } finally {
-            if (!skipConnectionManagement) {
-                await this.neo4jService.disconnect();
-            }
         }
     }
 
@@ -90,7 +107,7 @@ export class RepositoryAnalyzer {
         repositoryId: string, 
         config: StreamingConfig, 
         progress?: vscode.Progress<{ increment?: number; message?: string }>
-    ): Promise<void> {
+    ): Promise<Pick<AnalysisSummary, 'totalFiles' | 'processedFiles' | 'skippedFiles'>> {
         let fileCount = 0;
         let processedFiles = 0;
         let skippedFiles = 0;
@@ -137,6 +154,11 @@ export class RepositoryAnalyzer {
             increment: 40, 
             message: `Completed streaming: ${processedFiles} files processed, ${skippedFiles} skipped` 
         });
+        return {
+            totalFiles: fileCount,
+            processedFiles,
+            skippedFiles
+        };
     }
 
     private async analyzeRepositoryBatch(
@@ -144,7 +166,7 @@ export class RepositoryAnalyzer {
         repositoryId: string, 
         config: StreamingConfig, 
         progress?: vscode.Progress<{ increment?: number; message?: string }>
-    ): Promise<void> {
+    ): Promise<Pick<AnalysisSummary, 'totalFiles' | 'processedFiles' | 'skippedFiles'>> {
         progress?.report({ increment: 10, message: 'Loading all files...' });
         const files = await this.githubService.getAllFiles(repoPath, config);
 
@@ -156,6 +178,11 @@ export class RepositoryAnalyzer {
 
         progress?.report({ increment: 40, message: 'Creating relationships...' });
         await this.createRelationships(files, repositoryId);
+        return {
+            totalFiles: files.length,
+            processedFiles: files.length,
+            skippedFiles: 0
+        };
     }
 
     private async processFileContent(file: FileInfo, repositoryId: string): Promise<void> {
@@ -372,13 +399,13 @@ export class RepositoryAnalyzer {
     async getRepositoryStatistics(repositoryId: string): Promise<any> {
         await this.neo4jService.connect();
         const stats = await this.neo4jService.getRepositoryStats(repositoryId);
-        await this.neo4jService.disconnect();
         return stats;
     }
 
-    private async analyzeGitHistory(repoPath: string, repositoryId: string): Promise<void> {
+    private async analyzeGitHistory(repoPath: string, repositoryId: string): Promise<Pick<AnalysisSummary, 'commitCount' | 'contributorCount'>> {
         await this.gitHistoryService.initialize(repoPath);
         const commits = await this.gitHistoryService.getCommitHistory(100);
+        const repositoryFiles = new Set<string>((await this.githubService.getAllFiles(repoPath)).map(file => file.path));
         
         const uniqueAuthors = new Set<string>();
         const collaborations = await this.gitHistoryService.getCollaborationData();
@@ -394,19 +421,42 @@ export class RepositoryAnalyzer {
                 date: commit.date,
                 insertions: commit.insertions,
                 deletions: commit.deletions,
+                effort: commit.effort,
                 repositoryId
             });
+
+            await this.neo4jService.createCommitAuthorRelationship(commit.hash, commit.email, repositoryId);
+
+            const modifiedFiles = await this.gitHistoryService.getCommitFiles(commit.hash);
+            for (const filePath of modifiedFiles) {
+                if (repositoryFiles.has(filePath)) {
+                    await this.neo4jService.createCommitFileRelationship(commit.hash, filePath, repositoryId);
+                }
+            }
+
+            const patternId = this.toPatternId(commit.date);
+            await this.neo4jService.createWorkPatternNode({
+                timeOfDay: this.getTimeOfDay(commit.date),
+                dayOfWeek: this.getDayOfWeek(commit.date),
+                duration: this.getDurationFromCommit(commit),
+                focus: this.getFocusFromCommitMessage(commit.message),
+                motivation: this.getMotivationFromCommitMessage(commit.message),
+                repositoryId
+            });
+            await this.neo4jService.createCommitWorkPatternRelationship(commit.hash, patternId, repositoryId);
         }
 
         for (const email of uniqueAuthors) {
             const authorInfo = await this.gitHistoryService.getAuthorInfo(email);
-            await this.neo4jService.createAuthorNode({
+            const stats = commits.filter(commit => commit.email === email);
+            await this.neo4jService.createContributorNode({
                 name: authorInfo.name,
                 email: authorInfo.email,
-                team: authorInfo.team,
-                role: authorInfo.role,
-                timezone: authorInfo.timezone,
-                joinDate: authorInfo.joinDate,
+                commits: stats.length,
+                insertions: stats.reduce((sum, commit) => sum + commit.insertions, 0),
+                deletions: stats.reduce((sum, commit) => sum + commit.deletions, 0),
+                firstCommit: stats.length ? stats[stats.length - 1].date : new Date(),
+                lastCommit: stats.length ? stats[0].date : new Date(),
                 repositoryId
             });
 
@@ -443,12 +493,16 @@ export class RepositoryAnalyzer {
         }
 
         for (const teamName of teams) {
+            let teamSize = 0;
+            for (const email of uniqueAuthors) {
+                const info = await this.gitHistoryService.getAuthorInfo(email);
+                if (info.team === teamName) {
+                    teamSize++;
+                }
+            }
             await this.neo4jService.createTeamNode({
                 name: teamName,
-                size: Array.from(uniqueAuthors).filter(email => {
-                    const authorInfo = this.gitHistoryService.getAuthorInfo(email);
-                    return authorInfo.then(info => info.team === teamName);
-                }).length,
+                size: teamSize,
                 repositoryId
             });
         }
@@ -459,6 +513,51 @@ export class RepositoryAnalyzer {
                 await this.neo4jService.createAuthorTeamRelationship(email, authorInfo.team, repositoryId);
             }
         }
+        return {
+            commitCount: commits.length,
+            contributorCount: uniqueAuthors.size
+        };
+    }
+
+    private toPatternId(date: Date): string {
+        return `${this.getTimeOfDay(date)}_${this.getDayOfWeek(date)}`;
+    }
+
+    private getTimeOfDay(date: Date): string {
+        const hour = date.getHours();
+        if (hour >= 6 && hour < 12) return 'morning';
+        if (hour >= 12 && hour < 18) return 'afternoon';
+        if (hour >= 18 && hour < 22) return 'evening';
+        return 'night';
+    }
+
+    private getDayOfWeek(date: Date): string {
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        return days[date.getDay()];
+    }
+
+    private getDurationFromCommit(commit: { insertions: number; deletions: number }): string {
+        const total = commit.insertions + commit.deletions;
+        if (total > 500) return 'long session';
+        if (total > 100) return 'medium session';
+        return 'quick fix';
+    }
+
+    private getFocusFromCommitMessage(message: string): string {
+        const msg = message.toLowerCase();
+        if (msg.includes('refactor') || msg.includes('architecture')) return 'deep work';
+        if (msg.includes('review') || msg.includes('feedback')) return 'review';
+        if (msg.includes('meeting') || msg.includes('sync')) return 'meetings';
+        return 'development';
+    }
+
+    private getMotivationFromCommitMessage(message: string): string {
+        const msg = message.toLowerCase();
+        if (msg.includes('deadline') || msg.includes('urgent')) return 'deadline pressure';
+        if (msg.includes('request') || msg.includes('feature')) return 'feature request';
+        if (msg.includes('bug') || msg.includes('issue')) return 'bug report';
+        if (msg.includes('improve') || msg.includes('optimize')) return 'improvement';
+        return 'routine work';
     }
 
     private async analyzeDependencies(repoPath: string, repositoryId: string): Promise<void> {

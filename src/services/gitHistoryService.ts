@@ -145,6 +145,15 @@ export class GitHistoryService {
         return collaborations;
     }
 
+    async getCommitFiles(commitHash: string): Promise<string[]> {
+        if (!this.git) throw new Error('Git not initialized');
+        const output = await this.git.show([commitHash, '--name-only', '--pretty=format:']);
+        return output
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+    }
+
     private extractInsertions(stats: string): number {
         const match = stats.match(/(\d+) insertions?/);
         return match ? parseInt(match[1]) : 0;

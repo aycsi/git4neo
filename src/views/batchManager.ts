@@ -123,6 +123,7 @@ export class BatchManagerView {
                     .status-running { background: #007acc; color: #fff; }
                     .status-completed { background: #28a745; color: #fff; }
                     .status-failed { background: #dc3545; color: #fff; }
+                    .status-paused { background: #6c757d; color: #fff; }
                     .progress-bar {
                         width: 100%;
                         height: 8px;

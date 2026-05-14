@@ -2,7 +2,7 @@
   "name": "git4neo",
   "displayName": "Git4Neo",
   "description": "Analyze Git repositories as a Neo4j knowledge graph",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "publisher": "aycsi",
   "icon": "icon.png",
   "keywords": [
@@ -234,7 +234,9 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "jest --passWithNoTests"
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "jest",
+    "package:smoke": "npx @vscode/vsce package --no-dependencies --out git4neo-smoke.vsix"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",
