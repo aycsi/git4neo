@@ -47,7 +47,11 @@ export class InsightsPanel implements vscode.TreeDataProvider<InsightItem> {
         }
 
         if (!this.neo4j.connected) {
-            return [new InsightItem('Not connected to Neo4j', vscode.TreeItemCollapsibleState.None, undefined, 'Run "Setup Wizard"')];
+            try {
+                await this.neo4j.connect();
+            } catch (error) {
+                return [new InsightItem('Not connected to Neo4j', vscode.TreeItemCollapsibleState.None, undefined, error instanceof Error ? error.message : 'Run "Setup Wizard"')];
+            }
         }
 
         if (el?.children) {
@@ -61,6 +65,7 @@ export class InsightsPanel implements vscode.TreeDataProvider<InsightItem> {
                 new InsightItem('Dependencies', vscode.TreeItemCollapsibleState.Collapsed),
                 new InsightItem('Code Quality', vscode.TreeItemCollapsibleState.Collapsed),
                 new InsightItem('Recent Commits', vscode.TreeItemCollapsibleState.Collapsed),
+                new InsightItem('Data Coverage', vscode.TreeItemCollapsibleState.Collapsed),
             ];
         }
 
@@ -122,6 +127,32 @@ export class InsightsPanel implements vscode.TreeDataProvider<InsightItem> {
                     r.message?.substring(0, 60) || '(no message)', vscode.TreeItemCollapsibleState.None, undefined,
                     r.author
                 ));
+            }
+            case 'Data Coverage': {
+                const rows = await this.neo4j.executeQuery(`
+                    MATCH (r:Repository {fullName: $repositoryId})
+                    OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
+                    OPTIONAL MATCH (r)-[:HAS_COMMIT]->(c:Commit)
+                    OPTIONAL MATCH (r)-[:HAS_CONTRIBUTOR]->(u:Contributor)
+                    OPTIONAL MATCH (c)-[:MODIFIED]->(mf:File)
+                    OPTIONAL MATCH (u)-[:AUTHORED]->(ac:Commit)
+                    RETURN count(DISTINCT f) as files,
+                           count(DISTINCT c) as commits,
+                           count(DISTINCT u) as contributors,
+                           count(DISTINCT mf) as filesLinkedToCommits,
+                           count(DISTINCT ac) as commitsLinkedToAuthors
+                `, p);
+                if (rows.length === 0) { return [new InsightItem('No data', vscode.TreeItemCollapsibleState.None)]; }
+                const r = rows[0] as any;
+                const fileCoverage = Number(r.files) > 0 ? `${Math.round((Number(r.filesLinkedToCommits) / Number(r.files)) * 100)}%` : '0%';
+                const commitCoverage = Number(r.commits) > 0 ? `${Math.round((Number(r.commitsLinkedToAuthors) / Number(r.commits)) * 100)}%` : '0%';
+                return [
+                    new InsightItem('Files indexed', vscode.TreeItemCollapsibleState.None, undefined, String(r.files)),
+                    new InsightItem('Commits indexed', vscode.TreeItemCollapsibleState.None, undefined, String(r.commits)),
+                    new InsightItem('Contributors indexed', vscode.TreeItemCollapsibleState.None, undefined, String(r.contributors)),
+                    new InsightItem('File-to-commit coverage', vscode.TreeItemCollapsibleState.None, undefined, fileCoverage),
+                    new InsightItem('Commit-to-author coverage', vscode.TreeItemCollapsibleState.None, undefined, commitCoverage),
+                ];
             }
             default:
                 return [];

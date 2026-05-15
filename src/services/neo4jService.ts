@@ -20,6 +20,7 @@ export class Neo4jService {
     private driver: Driver | null = null;
     private sessionPool: Session[] = [];
     private maxPoolSize = 5;
+    private schemaInitialized = false;
 
     get connected(): boolean {
         return this.driver !== null;
@@ -29,6 +30,9 @@ export class Neo4jService {
         if (this.driver) {
             try {
                 await this.driver.verifyConnectivity();
+                if (!this.schemaInitialized) {
+                    await this.ensureSchema();
+                }
                 return;
             } catch (error) {
                 await this.disconnect();
@@ -44,6 +48,7 @@ export class Neo4jService {
             try {
                 this.driver = neo4j.driver(uri, neo4j.auth.basic(username, password));
                 await this.driver.verifyConnectivity();
+                await this.ensureSchema();
                 return;
             } catch (error) {
                 vscode.window.showWarningMessage(`Neo4j extension connection failed, falling back to settings: ${error instanceof Error ? error.message : String(error)}`);
@@ -58,8 +63,38 @@ export class Neo4jService {
         try {
             this.driver = neo4j.driver(uri, neo4j.auth.basic(username, password));
             await this.driver.verifyConnectivity();
+            await this.ensureSchema();
         } catch (error) {
             throw new Error(`Failed to connect to Neo4j: ${error}`);
+        }
+    }
+
+    private async ensureSchema(): Promise<void> {
+        if (!this.driver || this.schemaInitialized) {
+            return;
+        }
+
+        const session = this.driver.session();
+        try {
+            await session.run('CREATE CONSTRAINT repo_full_name IF NOT EXISTS FOR (r:Repository) REQUIRE r.fullName IS UNIQUE');
+            await session.run('CREATE CONSTRAINT file_identity IF NOT EXISTS FOR (f:File) REQUIRE (f.path, f.repositoryId) IS UNIQUE');
+            await session.run('CREATE CONSTRAINT commit_identity IF NOT EXISTS FOR (c:Commit) REQUIRE (c.hash, c.repositoryId) IS UNIQUE');
+            await session.run('CREATE CONSTRAINT contributor_identity IF NOT EXISTS FOR (c:Contributor) REQUIRE (c.email, c.repositoryId) IS UNIQUE');
+            await session.run('CREATE CONSTRAINT dependency_identity IF NOT EXISTS FOR (d:Dependency) REQUIRE (d.name, d.repositoryId) IS UNIQUE');
+            await session.run('CREATE INDEX file_extension IF NOT EXISTS FOR (f:File) ON (f.extension)');
+            await session.run('CREATE INDEX commit_date IF NOT EXISTS FOR (c:Commit) ON (c.date)');
+            await session.run('MATCH (a:Author) SET a:Contributor');
+            await session.run(`
+                MATCH (r:Repository)-[:HAS_AUTHOR]->(a:Contributor)
+                MERGE (r)-[:HAS_CONTRIBUTOR]->(a)
+            `);
+            await session.run(`
+                MATCH (c:Commit)-[:AUTHORED_BY]->(a:Contributor)
+                MERGE (a)-[:AUTHORED]->(c)
+            `);
+            this.schemaInitialized = true;
+        } finally {
+            await session.close();
         }
     }
 
@@ -102,6 +137,7 @@ export class Neo4jService {
             await this.driver.close();
             this.driver = null;
         }
+        this.schemaInitialized = false;
     }
 
     async createRepositoryNode(repoData: {
@@ -317,11 +353,29 @@ export class Neo4jService {
 
         const session = this.driver.session();
         try {
+            const parseIdentity = (identity: string): { name: string; filePath: string } => {
+                const idx = identity.indexOf('_');
+                if (idx <= 0 || idx >= identity.length - 1) {
+                    return { name: identity, filePath: '' };
+                }
+                return {
+                    name: identity.slice(0, idx),
+                    filePath: identity.slice(idx + 1)
+                };
+            };
+            const from = parseIdentity(fromFunction);
+            const to = parseIdentity(toFunction);
             await session.run(`
-                MATCH (f1:Function {name: $fromFunction, repositoryId: $repositoryId})
-                MATCH (f2:Function {name: $toFunction, repositoryId: $repositoryId})
+                MATCH (f1:Function {name: $fromName, filePath: $fromFilePath, repositoryId: $repositoryId})
+                MATCH (f2:Function {name: $toName, filePath: $toFilePath, repositoryId: $repositoryId})
                 MERGE (f1)-[:CALLS]->(f2)
-            `, { fromFunction, toFunction, repositoryId });
+            `, {
+                fromName: from.name,
+                fromFilePath: from.filePath,
+                toName: to.name,
+                toFilePath: to.filePath,
+                repositoryId
+            });
         } finally {
             await session.close();
         }
@@ -388,6 +442,7 @@ export class Neo4jService {
         date: Date;
         insertions: number;
         deletions: number;
+        effort?: string;
         repositoryId: string;
     }): Promise<string> {
         if (!this.driver) {
@@ -405,6 +460,7 @@ export class Neo4jService {
                     c.date = datetime($date),
                     c.insertions = $insertions,
                     c.deletions = $deletions,
+                    c.effort = $effort,
                     c.createdAt = datetime()
                 MERGE (r)-[:HAS_COMMIT]->(c)
                 RETURN c.hash as id
@@ -464,7 +520,7 @@ export class Neo4jService {
         try {
             const result = await session.run(`
                 MATCH (r:Repository {fullName: $repositoryId})
-                MERGE (c:Contributor {email: $email, repositoryId: $repositoryId})
+                MERGE (c:Contributor:Author {email: $email, repositoryId: $repositoryId})
                 SET c.name = $name,
                     c.commits = $commits,
                     c.insertions = $insertions,
@@ -473,6 +529,7 @@ export class Neo4jService {
                     c.lastCommit = datetime($lastCommit),
                     c.createdAt = datetime()
                 MERGE (r)-[:HAS_CONTRIBUTOR]->(c)
+                MERGE (r)-[:HAS_AUTHOR]->(c)
                 RETURN c.email as id
             `, contributorData);
 
@@ -510,6 +567,7 @@ export class Neo4jService {
                 MATCH (c:Commit {hash: $commitHash, repositoryId: $repositoryId})
                 MATCH (a:Contributor {email: $authorEmail, repositoryId: $repositoryId})
                 MERGE (c)-[:AUTHORED_BY]->(a)
+                MERGE (a)-[:AUTHORED]->(c)
             `, { commitHash, authorEmail, repositoryId });
         } finally {
             this.releaseSession(session);
@@ -597,12 +655,13 @@ export class Neo4jService {
             contributor: `
                 UNWIND $batch AS item
                 MATCH (r:Repository {fullName: item.repositoryId})
-                MERGE (c:Contributor {email: item.email, repositoryId: item.repositoryId})
+                MERGE (c:Contributor:Author {email: item.email, repositoryId: item.repositoryId})
                 SET c.name = item.name, c.commits = item.commits,
                     c.insertions = item.insertions, c.deletions = item.deletions,
                     c.firstCommit = datetime(item.firstCommit), c.lastCommit = datetime(item.lastCommit),
                     c.createdAt = datetime()
                 MERGE (r)-[:HAS_CONTRIBUTOR]->(c)
+                MERGE (r)-[:HAS_AUTHOR]->(c)
             `,
             dependency: `
                 UNWIND $batch AS item
@@ -707,29 +766,16 @@ export class Neo4jService {
         joinDate?: Date;
         repositoryId: string;
     }): Promise<string> {
-        if (!this.driver) {
-            throw new Error('Not connected to Neo4j');
-        }
-
-        const session = this.getSession();
-        try {
-            const result = await session.run(`
-                MATCH (r:Repository {fullName: $repositoryId})
-                MERGE (a:Author {email: $email, repositoryId: $repositoryId})
-                SET a.name = $name,
-                    a.team = $team,
-                    a.role = $role,
-                    a.timezone = $timezone,
-                    a.joinDate = datetime($joinDate),
-                    a.createdAt = datetime()
-                MERGE (r)-[:HAS_AUTHOR]->(a)
-                RETURN a.email as id
-            `, authorData);
-
-            return result.records[0].get('id');
-        } finally {
-            this.releaseSession(session);
-        }
+        return this.createContributorNode({
+            name: authorData.name,
+            email: authorData.email,
+            commits: 0,
+            insertions: 0,
+            deletions: 0,
+            firstCommit: authorData.joinDate || new Date(),
+            lastCommit: new Date(),
+            repositoryId: authorData.repositoryId
+        });
     }
 
     async createTeamNode(teamData: {
@@ -805,9 +851,10 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             await session.run(`
-                MATCH (a:Author {email: $authorEmail, repositoryId: $repositoryId})
+                MATCH (a:Contributor {email: $authorEmail, repositoryId: $repositoryId})
                 MATCH (t:Team {name: $teamName, repositoryId: $repositoryId})
                 MERGE (a)-[:MEMBER_OF]->(t)
+                SET a.team = $teamName
             `, { authorEmail, teamName, repositoryId });
         } finally {
             this.releaseSession(session);
@@ -822,8 +869,8 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             await session.run(`
-                MATCH (a1:Author {email: $author1Email, repositoryId: $repositoryId})
-                MATCH (a2:Author {email: $author2Email, repositoryId: $repositoryId})
+                MATCH (a1:Contributor {email: $author1Email, repositoryId: $repositoryId})
+                MATCH (a2:Contributor {email: $author2Email, repositoryId: $repositoryId})
                 MERGE (a1)-[:COLLABORATES_WITH {strength: $strength}]->(a2)
             `, { author1Email, author2Email, repositoryId, strength });
         } finally {
@@ -857,7 +904,7 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             const result = await session.run(`
-                MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+                MATCH (t:Team {repositoryId: $repositoryId})<-[:MEMBER_OF]-(a:Contributor)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
                 RETURN t.name as team, f.path as filePath, count(c) as commits
                 ORDER BY team, commits DESC
             `, { repositoryId });
@@ -876,7 +923,7 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             const result = await session.run(`
-                MATCH (a1:Author {repositoryId: $repositoryId})-[:COLLABORATES_WITH]->(a2:Author {repositoryId: $repositoryId})
+                MATCH (a1:Contributor {repositoryId: $repositoryId})-[:COLLABORATES_WITH]->(a2:Contributor {repositoryId: $repositoryId})
                 MATCH (a1)-[:MEMBER_OF]->(t1:Team {repositoryId: $repositoryId})
                 MATCH (a2)-[:MEMBER_OF]->(t2:Team {repositoryId: $repositoryId})
                 WHERE t1.name <> t2.name
@@ -898,7 +945,7 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             const result = await session.run(`
-                MATCH (a:Author {repositoryId: $repositoryId})-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
+                MATCH (a:Contributor {repositoryId: $repositoryId})-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File)
                 RETURN f.path as filePath, a.name as author, a.team as team, count(c) as expertiseScore
                 ORDER BY filePath, expertiseScore DESC
             `, { repositoryId });
@@ -917,7 +964,7 @@ export class Neo4jService {
         const session = this.getSession();
         try {
             const result = await session.run(`
-                MATCH (t:Team {repositoryId: $repositoryId})-[:MEMBER_OF]-(a:Author)-[:AUTHORED]->(c:Commit)-[:FOLLOWS_PATTERN]->(w:WorkPattern {repositoryId: $repositoryId})
+                MATCH (t:Team {repositoryId: $repositoryId})<-[:MEMBER_OF]-(a:Contributor)-[:AUTHORED]->(c:Commit)-[:FOLLOWS_PATTERN]->(w:WorkPattern {repositoryId: $repositoryId})
                 WHERE w.focus = "deep work"
                 RETURN t.name as team, w.timeOfDay as timeOfDay, avg(c.effort) as productivity
                 ORDER BY team, productivity DESC

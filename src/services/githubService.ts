@@ -82,6 +82,17 @@ export class GitHubService {
         }
     }
 
+    setToken(token: string): void {
+        this.octokit = token ? new Octokit({ auth: token }) : null;
+    }
+
+    async validateToken(): Promise<void> {
+        if (!this.octokit) {
+            throw new Error('GitHub token not configured');
+        }
+        await this.octokit.rest.users.getAuthenticated();
+    }
+
     async getRepositoryInfo(repoUrl: string): Promise<RepositoryInfo> {
         const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
         if (!match) {
@@ -624,7 +635,10 @@ export class GitHubService {
                         if (ext) { exts.add(ext); }
                     }
                 }
-            } catch (_) {}
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                vscode.window.showWarningMessage(`Failed to inspect ${dir}: ${message}`);
+            }
         };
         walk(repo);
         return Array.from(exts);
