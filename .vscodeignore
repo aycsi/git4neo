@@ -8,5 +8,6 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 test/**
+workshop testings 2026/**
 node_modules/**
 *.vsix
